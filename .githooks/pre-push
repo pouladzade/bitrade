@@ -1,0 +1,19 @@
+#!/bin/sh
+
+echo "Running pre-push checks..."
+
+# Ensure the project compiles
+cargo check
+if [ $? -ne 0 ]; then
+  echo "Compilation failed! Fix errors before pushing."
+  exit 1
+fi
+
+# Run tests
+cargo test
+if [ $? -ne 0 ]; then
+  echo "Tests failed! Fix tests before pushing."
+  exit 1
+fi
+
+echo "Pre-push checks passed!"

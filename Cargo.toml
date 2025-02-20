@@ -1,0 +1,15 @@
+[package]
+name = "matching-engine"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "matching-engine"
+path = "src/main.rs"
+
+[dependencies]
+crossbeam-channel = "0.5.14"
+rust_decimal = "1.36.0"
+serde = { version = "1.0.217", features = [ "derive" ] }
+serde_json = "1.0.64"
+tokio = { version = "1.43.0", features = [ "full" ] }

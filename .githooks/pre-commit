@@ -1,0 +1,20 @@
+#!/bin/sh
+
+echo "Running pre-commit checks..."
+
+# Check formatting
+cargo fmt -- --check
+if [ $? -ne 0 ]; then
+  echo "Code is not formatted! Run 'cargo fmt' before committing."
+  exit 1
+fi
+
+# Run Clippy (Rust linter)
+cargo clippy -- -D warnings
+if [ $? -ne 0 ]; then
+  echo "Linting failed! Fix Clippy warnings before committing."
+  exit 1
+fi
+
+echo "Pre-commit checks passed!"
+
