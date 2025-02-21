@@ -1,23 +1,6 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-/*
-Separation of Static & Dynamic Fields
-
-    Keeping immutable fields (ID, type, user, price, amount, etc.) separate from mutable fields (remaining amount, frozen funds, finished amounts) makes it clear what can be updated.
-
-Fee Handling
-
-    Including both maker_fee and taker_fee allows for flexibility in order execution, which is crucial for exchanges with different fee structures.
-
-Verbose State Tracking
-
-    The VerboseOrderState, VerboseBalanceState, and VerboseTradeState structs are useful for tracking changes, debugging, and real-time monitoring.
-
-Trade History Representation
-
-    The Trade struct includes all necessary details for auditing trades, including the matched orders, fees, and optional state diffs (state_before and state_after).
-*/
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OrderType {
@@ -34,16 +17,15 @@ pub enum OrderSide {
 pub struct Order {
     // Immutable order details
     pub id: u64,
-    pub base_asset: String,  // Base currency (e.g., BTC)
-    pub quote_asset: String, // Quote currency (e.g., USDT)
-    pub market: String,      // Market identifier (e.g., BTC/USDT)
-    #[serde(rename = "type")]
+    pub base_asset: String,    // Base currency (e.g., BTC)
+    pub quote_asset: String,   // Quote currency (e.g., USDT)
+    pub market: String,        // Market identifier (e.g., BTC/USDT)
     pub order_type: OrderType, // Limit, Market, etc.
-    pub side: OrderSide,     // Buy or Sell
-    pub user_id: u32,        // Owner of the order
-    pub post_only: bool,     // True if maker-only
-    pub price: Decimal,      // Order price
-    pub amount: Decimal,     // Total amount
+    pub side: OrderSide,       // Buy or Sell
+    pub user_id: u32,          // Owner of the order
+    pub post_only: bool,       // True if maker-only
+    pub price: Decimal,        // Order price
+    pub amount: Decimal,       // Total amount
 
     // Fee structure
     pub maker_fee: Decimal, // Fee if executed as maker

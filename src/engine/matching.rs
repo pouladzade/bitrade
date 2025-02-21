@@ -2,7 +2,6 @@ use crate::engine::order_book::SharedOrderBook;
 use crate::models::order::Order;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
-
 pub struct MatchingEngine {
     order_book: SharedOrderBook,
     order_tx: Sender<Order>,
