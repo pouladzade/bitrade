@@ -1,3 +1,11 @@
 {
-  "cSpell.words": ["Deque", "dotenv", "matchengine", "prec", "serde"]
+  "cSpell.words": [
+    "bitrade",
+    "Deque",
+    "dotenv",
+    "matchengine",
+    "prec",
+    "prost",
+    "serde"
+  ]
 }

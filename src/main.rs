@@ -1,11 +1,7 @@
-use config::config::*;
-mod config;
-mod engine;
-mod models;
+use bitrade::{config::app_config::load_config, grpc::server::start_server};
 
 #[tokio::main]
 async fn main() {
-    // Load configuration
     let config = load_config().unwrap_or_else(|err| {
         eprintln!("Failed to load config: {}", err);
         std::process::exit(1);
@@ -19,4 +15,6 @@ async fn main() {
 
     let market = &config.market;
     println!("Market: {:?}", market);
+
+    start_server().await.unwrap();
 }

@@ -1,0 +1,14 @@
+# Maximum width of comments. Comments longer than this will be wrapped.
+comment_width = 100
+
+# Whether to format code snippets within documentation comments.
+format_code_in_doc_comments = true
+
+# The granularity of imports. "Crate" means imports will be grouped by crate.
+imports_granularity = "Crate"
+
+# The layout of imports. "Vertical" means imports will be listed vertically.
+imports_layout = "Vertical"
+
+# Whether to wrap comments to fit within the specified comment width.
+wrap_comments = true

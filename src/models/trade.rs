@@ -1,8 +1,6 @@
+
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-
-use super::{order::Order, verbose_state::VerboseTradeState};
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Trade {
     pub id: u64,
@@ -23,15 +21,30 @@ pub struct Trade {
     pub bid_order_id: u64,
     pub bid_role: MarketRole,
     pub bid_fee: Decimal,
-
-    pub ask_order: Option<Order>,
-    pub bid_order: Option<Order>,
-    pub state_before: Option<VerboseTradeState>,
-    pub state_after: Option<VerboseTradeState>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum MarketRole {
     Maker, // Order was on the book and matched
     Taker, // Order was matched immediately
+}
+impl TryFrom<String> for MarketRole {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "MAKER" => Ok(MarketRole::Maker),
+            "TAKER" => Ok(MarketRole::Taker),
+            _ => Err(format!("Invalid MarketRole: {}", value)),
+        }
+    }
+}
+
+impl Into<String> for MarketRole {
+    fn into(self) -> String {
+        match self {
+            MarketRole::Maker => "MAKER".to_string(),
+            MarketRole::Taker => "TAKER".to_string(),
+        }
+    }
 }

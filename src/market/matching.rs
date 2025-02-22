@@ -1,17 +1,19 @@
-use crate::engine::order_book::SharedOrderBook;
+
 use crate::models::order::Order;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
-pub struct MatchingEngine {
+use super::shared_order_book::SharedOrderBook;
+
+pub struct Market {
     order_book: SharedOrderBook,
     order_tx: Sender<Order>,
     order_rx: Receiver<Order>,
 }
 
-impl MatchingEngine {
+impl Market {
     pub fn new() -> Self {
         let (order_tx, order_rx) = unbounded();
-        MatchingEngine {
+        Market {
             order_book: SharedOrderBook::new(),
             order_tx,
             order_rx,

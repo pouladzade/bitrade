@@ -13,6 +13,51 @@ pub enum OrderSide {
     Buy,  // Bid order
     Sell, // Ask order
 }
+
+
+impl TryFrom<String> for OrderType {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "LIMIT" => Ok(OrderType::Limit),
+            "MARKET" => Ok(OrderType::Market),
+            _ => Err(format!("Invalid OrderType: {}", value)),
+        }
+    }
+}
+
+impl Into<String> for OrderType {
+    fn into(self) -> String {
+        match self {
+            OrderType::Limit => "LIMIT".to_string(),
+            OrderType::Market => "MARKET".to_string(),
+        }
+    }
+}
+
+impl TryFrom<String> for OrderSide {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "BUY" => Ok(OrderSide::Buy),
+            "SELL" => Ok(OrderSide::Sell),
+            _ => Err(format!("Invalid OrderSide: {}", value)),
+        }
+    }
+}
+
+impl Into<String> for OrderSide {
+    fn into(self) -> String {
+        match self {
+            OrderSide::Buy => "BUY".to_string(),
+            OrderSide::Sell => "SELL".to_string(),
+        }
+    }
+}
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Order {
     // Immutable order details
