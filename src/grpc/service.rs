@@ -5,14 +5,15 @@ use crate::grpc::spot::spot_service_server::SpotService;
 use crate::grpc::spot::{
     AddOrderRequest, AddOrderResponse, CancelOrderRequest, CancelOrderResponse,
 };
+use anyhow::{Context, Result};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
-use anyhow::{Result, Context};
 
 use super::helper::convert_trades;
+use super::spot::{CancelAllOrdersRequest, CancelAllOrdersResponse};
 
 #[derive(Debug)]
 pub struct SpotServiceImpl {
@@ -27,10 +28,10 @@ impl SpotService for SpotServiceImpl {
     ) -> Result<Response<AddOrderResponse>, Status> {
         let req = request.into_inner();
 
-        let order_type = OrderType::try_from(req.order_type)
+        let order_type = OrderType::try_from(req.order_type.as_str())
             .map_err(|e| Status::invalid_argument(format!("Invalid order type: {}", e)))?;
 
-        let side = OrderSide::try_from(req.side)
+        let side = OrderSide::try_from(req.side.as_str())
             .map_err(|e| Status::invalid_argument(format!("Invalid order side: {}", e)))?;
 
         let price = Decimal::from_str(&req.price)
@@ -73,7 +74,9 @@ impl SpotService for SpotServiceImpl {
         };
 
         let order_book = self.market.write().await;
-        let res = order_book.add_order(order);
+        let res = order_book
+            .add_order(order)
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(AddOrderResponse {
             trades: convert_trades(res),
@@ -87,8 +90,25 @@ impl SpotService for SpotServiceImpl {
         let req = request.into_inner();
 
         let order_book = self.market.write().await;
-        let success = order_book.cancel_order(req.order_id);
+        let success = order_book
+            .cancel_order(req.order_id)
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(CancelOrderResponse { success }))
+    }
+
+    #[allow(unused)]
+    async fn cancel_all_orders(
+        &self,
+        request: Request<CancelAllOrdersRequest>,
+    ) -> Result<Response<CancelAllOrdersResponse>, Status> {
+        let req = request.into_inner();
+
+        let order_book = self.market.write().await;
+        let success = order_book
+            .cancel_all_orders()
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(CancelAllOrdersResponse { success }))
     }
 }

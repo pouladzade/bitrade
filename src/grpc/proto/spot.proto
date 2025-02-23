@@ -7,6 +7,7 @@ package spot;
 service SpotService {
     rpc AddOrder (AddOrderRequest) returns (AddOrderResponse);
     rpc CancelOrder (CancelOrderRequest) returns (CancelOrderResponse);
+    rpc CancelAllOrders (CancelAllOrdersRequest) returns (CancelAllOrdersResponse);
 }
 
 message ProtoTrade {
@@ -53,5 +54,12 @@ message CancelOrderRequest {
 }
 
 message CancelOrderResponse {
+    bool success = 1;
+}
+
+message CancelAllOrdersRequest {
+}
+
+message CancelAllOrdersResponse {
     bool success = 1;
 }

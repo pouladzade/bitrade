@@ -2,6 +2,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OrderType {
     Limit,  // A limit order with a specific price
@@ -14,12 +15,11 @@ pub enum OrderSide {
     Sell, // Ask order
 }
 
-
-impl TryFrom<String> for OrderType {
+impl TryFrom<&str> for OrderType {
     type Error = String;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.to_uppercase().as_str(){
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_uppercase().as_str() {
             "LIMIT" => Ok(OrderType::Limit),
             "MARKET" => Ok(OrderType::Market),
             _ => Err(format!("Invalid OrderType: {}", value)),
@@ -27,19 +27,19 @@ impl TryFrom<String> for OrderType {
     }
 }
 
-impl Into<String> for OrderType {
-    fn into(self) -> String {
-        match self {
+impl From<OrderType> for String {
+    fn from(order_type: OrderType) -> Self {
+        match order_type {
             OrderType::Limit => "LIMIT".to_string(),
             OrderType::Market => "MARKET".to_string(),
         }
     }
 }
 
-impl TryFrom<String> for OrderSide {
+impl TryFrom<&str> for OrderSide {
     type Error = String;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value.to_uppercase().as_str() {
             "BUY" => Ok(OrderSide::Buy),
             "SELL" => Ok(OrderSide::Sell),
@@ -48,15 +48,14 @@ impl TryFrom<String> for OrderSide {
     }
 }
 
-impl Into<String> for OrderSide {
-    fn into(self) -> String {
-        match self {
+impl From<OrderSide> for String {
+    fn from(order_side: OrderSide) -> Self {
+        match order_side {
             OrderSide::Buy => "BUY".to_string(),
             OrderSide::Sell => "SELL".to_string(),
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Order {

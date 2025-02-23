@@ -40,7 +40,7 @@ pub(crate) trait OrderBookTrait {
     fn get_order_count_by_side(&self, side: OrderSide) -> usize;
     fn get_order_by_id(&self, order_id: u64) -> Option<Order>;
     fn get_order_by_user(&self, user_id: u32) -> Vec<Order>;
-    fn cancel_all_orders(&mut self);
+    fn cancel_all_orders(&mut self) -> bool;
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +72,7 @@ impl OrderBookTrait for OrderBook {
                         && ask.order_type == OrderType::Limit
                         && ask.price > order.price
                     {
+                        print!("{} > {}", ask.price, order.price);
                         // No more matching asks
                         self.asks.push(ask); // Push it back to the heap
                         break;
@@ -113,6 +114,7 @@ impl OrderBookTrait for OrderBook {
                         && bid.order_type == OrderType::Limit
                         && bid.price < order.price
                     {
+                        print!("{} < {}", bid.price, order.price);
                         // No more matching bids
                         self.bids.push(bid); // Push it back to the heap
                         break;
@@ -190,10 +192,11 @@ impl OrderBookTrait for OrderBook {
             .collect()
     }
 
-    fn cancel_all_orders(&mut self) {
+    fn cancel_all_orders(&mut self) -> bool {
         self.bids.clear();
         self.asks.clear();
         self.orders.clear();
+        true
     }
 }
 

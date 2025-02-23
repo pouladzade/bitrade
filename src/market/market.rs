@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use crossbeam::channel;
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -26,8 +27,11 @@ impl Market {
 
             thread::spawn(move || {
                 while let Ok(task) = task_receiver.recv() {
-                    let mut order_book = order_book.write().unwrap(); // Write lock
-                    task(&mut order_book);
+                    if let Ok(mut order_book) = order_book.write() {
+                        task(&mut order_book);
+                    } else {
+                        panic!("Failed to acquire write lock on order_book");
+                    }
                 }
             });
         }
@@ -38,39 +42,56 @@ impl Market {
         }
     }
 
-    fn submit_task(&self, task: Task) {
-        self.task_sender.send(task).unwrap();
+    fn submit_task(&self, task: Task) -> Result<()> {
+        self.task_sender
+            .send(task)
+            .map_err(|e| anyhow::anyhow!("Failed to send task to worker thread: {}", e))
     }
 
-    pub fn add_order(&self, order: Order) -> Vec<Trade> {
+    pub fn add_order(&self, order: Order) -> Result<Vec<Trade>> {
         let (sender, receiver) = std::sync::mpsc::channel();
+
         self.submit_task(Box::new(move |order_book: &mut OrderBook| {
             let trades = order_book.add_order(order);
-            sender.send(trades).unwrap();
-        }));
-        receiver.recv().unwrap()
+            let _ = sender.send(trades);
+        }))?;
+
+        receiver
+            .recv()
+            .context("Failed to receive order execution result")
     }
 
-    pub fn get_order_by_id(&self, order_id: u64) -> Option<Order> {
-        let order_book = self.order_book.read().unwrap(); // Read lock
-        order_book.get_order_by_id(order_id) // No need for a task
+    pub fn get_order_by_id(&self, order_id: u64) -> Result<Option<Order>> {
+        let order_book = self
+            .order_book
+            .read()
+            .map_err(|e| anyhow::anyhow!("Failed to send task to worker thread: {}", e))?;
+        Ok(order_book.get_order_by_id(order_id)) // No need for a task
     }
 
-    pub fn cancel_order(&self, order_id: u64) -> bool {
+    pub fn cancel_order(&self, order_id: u64) -> Result<bool> {
         let (sender, receiver) = std::sync::mpsc::channel();
+
         self.submit_task(Box::new(move |order_book: &mut OrderBook| {
             let canceled = order_book.cancel_order(order_id);
-            sender.send(canceled).unwrap();
-        }));
-        receiver.recv().unwrap()
+            let _ = sender.send(canceled);
+        }))?;
+
+        receiver
+            .recv()
+            .context("Failed to receive order cancellation result")
     }
 
-    pub fn cancel_all_orders(&self) {
+    pub fn cancel_all_orders(&self) -> Result<bool> {
         let (sender, receiver) = std::sync::mpsc::channel();
+
         self.submit_task(Box::new(move |order_book: &mut OrderBook| {
-            order_book.cancel_all_orders();
-            sender.send(()).unwrap();
-        }));
-        receiver.recv().unwrap();
+            let canceled = order_book.cancel_all_orders();
+            let _ = sender.send(canceled);
+        }))?;
+
+        receiver
+            .recv()
+            .context("Failed to receive all orders cancellation result")
     }
 }
