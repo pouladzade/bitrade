@@ -4,8 +4,8 @@ use rust_decimal::Decimal;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
+use colored::*;
+use std::time::{SystemTime, UNIX_EPOCH}; // Import the crate
 /// Order Book implementation using Binary Heaps (Priority Queues) and a Hash Map.
 ///
 /// This structure uses a combination of Binary Heaps for the bids and asks,
@@ -62,13 +62,16 @@ impl OrderBookTrait for OrderBook {
 
     fn add_order(&mut self, mut order: Order) -> Vec<Trade> {
         let mut trades = Vec::new();
-
+        Self::print_order(&order);
         match order.side {
             OrderSide::Buy => {
                 // Try to match the buy order with existing sell orders (asks)
                 while let Some(mut ask) = self.asks.pop() {
                     // Stop if the ask price is higher than the buy order price for Limit orders
-                    if order.order_type == OrderType::Limit && ask.price > order.price {
+                    if order.order_type == OrderType::Limit
+                        && ask.order_type == OrderType::Limit
+                        && ask.price > order.price
+                    {
                         // No more matching asks
                         self.asks.push(ask); // Push it back to the heap
                         break;
@@ -106,7 +109,10 @@ impl OrderBookTrait for OrderBook {
                 // Try to match the sell order with existing buy orders (bids)
                 while let Some(mut bid) = self.bids.pop() {
                     // Stop if the bid price is lower than the sell order price for Limit orders
-                    if order.order_type == OrderType::Limit && bid.price < order.price {
+                    if order.order_type == OrderType::Limit
+                        && bid.order_type == OrderType::Limit
+                        && bid.price < order.price
+                    {
                         // No more matching bids
                         self.bids.push(bid); // Push it back to the heap
                         break;
@@ -141,7 +147,7 @@ impl OrderBookTrait for OrderBook {
                 }
             }
         }
-        println!("Order Book: {:?}", self);
+        self.print_order_book();
         trades
     }
 
@@ -208,30 +214,27 @@ impl OrderBook {
         bid.remain -= amount - bid_fee;
         ask.remain -= amount - ask_fee;
         let quote_amount = amount * price;
-        println!(
-            "Trade executed: {:?}",
-            Trade {
-                id: trade_id,
-                timestamp: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs_f64(),
-                market: bid.market.clone(),
-                base_asset: bid.base_asset.clone(),
-                quote_asset: bid.quote_asset.clone(),
-                price,
-                amount,
-                quote_amount,
-                ask_user_id: ask.user_id,
-                ask_order_id: ask.id,
-                ask_role: MarketRole::Maker,
-                ask_fee,
-                bid_user_id: bid.user_id,
-                bid_order_id: bid.id,
-                bid_role: MarketRole::Taker,
-                bid_fee,
-            }
-        );
+        Self::print_trade(&Trade {
+            id: trade_id,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64(),
+            market: bid.market.clone(),
+            base_asset: bid.base_asset.clone(),
+            quote_asset: bid.quote_asset.clone(),
+            price,
+            amount,
+            quote_amount,
+            ask_user_id: ask.user_id,
+            ask_order_id: ask.id,
+            ask_role: MarketRole::Maker,
+            ask_fee,
+            bid_user_id: bid.user_id,
+            bid_order_id: bid.id,
+            bid_role: MarketRole::Taker,
+            bid_fee,
+        });
         Trade {
             id: trade_id,
             timestamp: SystemTime::now()
@@ -260,6 +263,67 @@ impl OrderBook {
         use std::sync::atomic::{AtomicU64, Ordering};
         static TRADE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
         TRADE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn print_order_book(&self) {
+        println!("\n{}", "Order Book:".bold().white());
+
+        println!("{}", "Bids (Buy Orders):".green().bold());
+        for bid in self.bids.iter() {
+            println!(
+                "{} {} , {} {} , {} {} , {} {}",
+                "id:".green(),
+                bid.id,
+                "price:".green(),
+                bid.price,
+                "amount:".green(),
+                bid.amount,
+                "remain:".green(),
+                bid.remain
+            );
+        }
+
+        println!("{}", "Asks (Sell Orders):".red().bold());
+        for ask in self.asks.iter() {
+            println!(
+                "{} {} , {} {} , {} {} , {} {}",
+                "id:".red(),
+                ask.id,
+                "price:".red(),
+                ask.price,
+                "amount:".red(),
+                ask.amount,
+                "remain:".red(),
+                ask.remain
+            );
+        }
+    }
+    fn print_order(order: &Order) {
+        println!(
+            "\nNew Order Arrived {} {} , {} {} , {} {}",
+            "Order id:".blue(),
+            order.id,
+            "price:".blue(),
+            order.price,
+            "amount:".blue(),
+            order.amount
+        );
+    }
+
+    fn print_trade(trade: &Trade) {
+        println!(
+            "\nNew Trade Matched {} {} , {} {} , {} {} , {} {} , {} {}",
+            "Trade id:".cyan(),
+            trade.id,
+            "price:".cyan(),
+            trade.price,
+            "amount:".cyan(),
+            trade.amount,
+            "quote_amount:".cyan(),
+            trade.quote_amount,
+            "quote_asset:".cyan(),
+            trade.quote_asset,
+        );
     }
 }
 

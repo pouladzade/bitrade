@@ -1,4 +1,3 @@
-
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -32,7 +31,7 @@ impl TryFrom<String> for MarketRole {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
+        match value.to_uppercase().as_str() {
             "MAKER" => Ok(MarketRole::Maker),
             "TAKER" => Ok(MarketRole::Taker),
             _ => Err(format!("Invalid MarketRole: {}", value)),

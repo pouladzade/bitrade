@@ -10,6 +10,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
+use anyhow::{Result, Context};
 
 use super::helper::convert_trades;
 
@@ -25,31 +26,55 @@ impl SpotService for SpotServiceImpl {
         request: Request<AddOrderRequest>,
     ) -> Result<Response<AddOrderResponse>, Status> {
         let req = request.into_inner();
+
+        let order_type = OrderType::try_from(req.order_type)
+            .map_err(|e| Status::invalid_argument(format!("Invalid order type: {}", e)))?;
+
+        let side = OrderSide::try_from(req.side)
+            .map_err(|e| Status::invalid_argument(format!("Invalid order side: {}", e)))?;
+
+        let price = Decimal::from_str(&req.price)
+            .context("Failed to parse price as Decimal")
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        let amount = Decimal::from_str(&req.amount)
+            .context("Failed to parse amount as Decimal")
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        let maker_fee = Decimal::from_str("0")
+            .context("Failed to parse maker_fee as Decimal")
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let taker_fee = Decimal::from_str("0")
+            .context("Failed to parse taker_fee as Decimal")
+            .map_err(|e| Status::internal(e.to_string()))?;
+
         let order = Order {
             id: req.id,
             base_asset: req.base_asset,
             quote_asset: req.quote_asset,
             market: req.market,
-            order_type: OrderType::try_from(req.order_type).unwrap(),
-            side: OrderSide::try_from(req.side).unwrap(),
+            order_type,
+            side,
             user_id: req.user_id,
             post_only: req.post_only,
-            price: Decimal::from_str(&req.price).unwrap(),
-            amount: Decimal::from_str(&req.amount).unwrap(),
-            maker_fee: Decimal::from_str("0").unwrap(),
-            taker_fee: Decimal::from_str("0").unwrap(),
+            price,
+            amount,
+            maker_fee,
+            taker_fee,
             create_time: 0.0,
-            remain: Decimal::from_str(&req.amount).unwrap(),
-            frozen: Decimal::from_str("0").unwrap(),
-            filled_base: Decimal::from_str("0").unwrap(),
-            filled_quote: Decimal::from_str("0").unwrap(),
-            filled_fee: Decimal::from_str("0").unwrap(),
+            remain: amount,
+            frozen: Decimal::ZERO,
+            filled_base: Decimal::ZERO,
+            filled_quote: Decimal::ZERO,
+            filled_fee: Decimal::ZERO,
             update_time: 0.0,
             partially_filled: false,
         };
-        println!("gRPC Received order: {:?}", order);
+
         let order_book = self.market.write().await;
         let res = order_book.add_order(order);
+
         Ok(Response::new(AddOrderResponse {
             trades: convert_trades(res),
         }))
@@ -60,6 +85,7 @@ impl SpotService for SpotServiceImpl {
         request: Request<CancelOrderRequest>,
     ) -> Result<Response<CancelOrderResponse>, Status> {
         let req = request.into_inner();
+
         let order_book = self.market.write().await;
         let success = order_book.cancel_order(req.order_id);
 

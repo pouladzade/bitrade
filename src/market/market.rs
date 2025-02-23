@@ -48,7 +48,6 @@ impl Market {
             let trades = order_book.add_order(order);
             sender.send(trades).unwrap();
         }));
-        println!("Market Added order");
         receiver.recv().unwrap()
     }
 

@@ -19,7 +19,7 @@ impl TryFrom<String> for OrderType {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
+        match value.to_uppercase().as_str(){
             "LIMIT" => Ok(OrderType::Limit),
             "MARKET" => Ok(OrderType::Market),
             _ => Err(format!("Invalid OrderType: {}", value)),
@@ -40,7 +40,7 @@ impl TryFrom<String> for OrderSide {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
+        match value.to_uppercase().as_str() {
             "BUY" => Ok(OrderSide::Buy),
             "SELL" => Ok(OrderSide::Sell),
             _ => Err(format!("Invalid OrderSide: {}", value)),
