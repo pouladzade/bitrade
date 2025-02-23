@@ -1,5 +1,6 @@
 use crate::models::order::{Order, OrderSide, OrderType};
 use crate::models::trade::{MarketRole, Trade};
+use crate::utils::generate_uuid_id;
 use rust_decimal::Decimal;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
@@ -33,21 +34,19 @@ use std::time::{SystemTime, UNIX_EPOCH}; // Import the crate
 pub(crate) trait OrderBookTrait {
     fn new() -> Self;
     fn add_order(&mut self, order: Order) -> Vec<Trade>;
-    fn cancel_order(&mut self, order_id: u64) -> bool;
-    fn get_bids(&self) -> BinaryHeap<Order>;
-    fn get_asks(&self) -> BinaryHeap<Order>;
-    fn get_orders(&self) -> HashMap<u64, Order>;
+    fn cancel_order(&mut self, order_id: String) -> bool;
     fn get_order_count_by_side(&self, side: OrderSide) -> usize;
-    fn get_order_by_id(&self, order_id: u64) -> Option<Order>;
-    fn get_order_by_user(&self, user_id: u32) -> Vec<Order>;
+    fn get_order_by_id(&self, order_id: String) -> Option<Order>;
+    fn get_order_by_user(&self, user_id: String) -> Vec<Order>;
     fn cancel_all_orders(&mut self) -> bool;
 }
 
 #[derive(Debug, Clone)]
 pub struct OrderBook {
-    bids: BinaryHeap<Order>,     // Max-heap for bids (buy orders)
-    asks: BinaryHeap<Order>,     // Min-heap for asks (sell orders)
-    orders: HashMap<u64, Order>, // Order ID to Order mapping
+    bids: BinaryHeap<Order>,        // Max-heap for bids (buy orders)
+    asks: BinaryHeap<Order>,        // Min-heap for asks (sell orders)
+    orders: HashMap<String, Order>, // Order ID to Order mapping
+    market_price: Decimal,
 }
 
 impl OrderBookTrait for OrderBook {
@@ -57,6 +56,9 @@ impl OrderBookTrait for OrderBook {
             bids: BinaryHeap::new(),
             asks: BinaryHeap::new(),
             orders: HashMap::new(),
+
+            //TODO: Get the market price from the database OR from the market
+            market_price: Decimal::try_from(10000).unwrap(),
         }
     }
 
@@ -80,11 +82,9 @@ impl OrderBookTrait for OrderBook {
 
                     // Calculate the trade amount
                     let trade_amount = order.remain.min(ask.remain);
-                    let trade_price = ask.price;
 
                     // Execute the trade
-                    let trade =
-                        Self::execute_trade(&mut order, &mut ask, trade_amount, trade_price);
+                    let trade = self.execute_trade(&mut order, &mut ask, trade_amount);
                     trades.push(trade);
 
                     // Remove the ask order if fully filled
@@ -103,7 +103,7 @@ impl OrderBookTrait for OrderBook {
                 // Add the remaining buy order to the order book
                 if !order.remain.is_zero() {
                     self.bids.push(order.clone());
-                    self.orders.insert(order.id, order);
+                    self.orders.insert(order.id.clone(), order);
                 }
             }
             OrderSide::Sell => {
@@ -122,11 +122,8 @@ impl OrderBookTrait for OrderBook {
 
                     // Calculate the trade amount
                     let trade_amount = order.remain.min(bid.remain);
-                    let trade_price = bid.price;
-
                     // Execute the trade
-                    let trade =
-                        Self::execute_trade(&mut bid, &mut order, trade_amount, trade_price);
+                    let trade = self.execute_trade(&mut order, &mut bid, trade_amount);
                     trades.push(trade);
 
                     // Remove the bid order if fully filled
@@ -145,7 +142,7 @@ impl OrderBookTrait for OrderBook {
                 // Add the remaining sell order to the order book
                 if !order.remain.is_zero() {
                     self.asks.push(order.clone());
-                    self.orders.insert(order.id, order);
+                    self.orders.insert(order.id.clone(), order);
                 }
             }
         }
@@ -154,7 +151,7 @@ impl OrderBookTrait for OrderBook {
     }
 
     /// Cancel an order by its ID.
-    fn cancel_order(&mut self, order_id: u64) -> bool {
+    fn cancel_order(&mut self, order_id: String) -> bool {
         if let Some(order) = self.orders.remove(&order_id) {
             match order.side {
                 OrderSide::Buy => self.bids.retain(|o| o.id != order_id),
@@ -165,26 +162,17 @@ impl OrderBookTrait for OrderBook {
             false
         }
     }
-    fn get_bids(&self) -> BinaryHeap<Order> {
-        self.bids.clone()
-    }
-    fn get_asks(&self) -> BinaryHeap<Order> {
-        self.asks.clone()
-    }
-    fn get_orders(&self) -> HashMap<u64, Order> {
-        self.orders.clone()
-    }
     fn get_order_count_by_side(&self, side: OrderSide) -> usize {
         match side {
             OrderSide::Buy => self.bids.len(),
             OrderSide::Sell => self.asks.len(),
         }
     }
-    fn get_order_by_id(&self, order_id: u64) -> Option<Order> {
+    fn get_order_by_id(&self, order_id: String) -> Option<Order> {
         self.orders.get(&order_id).cloned()
     }
 
-    fn get_order_by_user(&self, user_id: u32) -> Vec<Order> {
+    fn get_order_by_user(&self, user_id: String) -> Vec<Order> {
         self.orders
             .values()
             .filter(|o| o.user_id == user_id)
@@ -201,115 +189,141 @@ impl OrderBookTrait for OrderBook {
 }
 
 impl OrderBook {
-    fn execute_trade(bid: &mut Order, ask: &mut Order, amount: Decimal, price: Decimal) -> Trade {
-        let trade_id = OrderBook::generate_trade_id();
-        let ask_fee = if ask.order_type == OrderType::Market {
-            ask.taker_fee
+    fn execute_trade(&mut self, taker: &mut Order, maker: &mut Order, amount: Decimal) -> Trade {
+        let trade_id = generate_uuid_id().to_string();
+        self.market_price = self.calculate_trade_price(taker, maker);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+
+        // Determine fees based on order type (market or limit)
+        let maker_fee = if maker.order_type == OrderType::Market {
+            maker.taker_fee
         } else {
-            ask.maker_fee
-        } * amount;
-        let bid_fee = if bid.order_type == OrderType::Market {
-            bid.taker_fee
-        } else {
-            bid.maker_fee
+            maker.maker_fee
         } * amount;
 
-        bid.remain -= amount - bid_fee;
-        ask.remain -= amount - ask_fee;
-        let quote_amount = amount * price;
-        Self::print_trade(&Trade {
+        let taker_fee = if taker.order_type == OrderType::Market {
+            taker.taker_fee
+        } else {
+            taker.maker_fee
+        } * amount;
+
+        // Update remaining amounts after deducting fees
+        taker.remain -= amount - taker_fee;
+        maker.remain -= amount - maker_fee;
+
+        let quote_amount = amount * self.market_price;
+
+        // Construct the trade object
+        let trade = Trade {
             id: trade_id,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64(),
-            market: bid.market.clone(),
-            base_asset: bid.base_asset.clone(),
-            quote_asset: bid.quote_asset.clone(),
-            price,
+            timestamp,
+            market: taker.market.clone(),
+            base_asset: taker.base_asset.clone(),
+            quote_asset: taker.quote_asset.clone(),
+            price: self.market_price,
             amount,
             quote_amount,
-            ask_user_id: ask.user_id,
-            ask_order_id: ask.id,
-            ask_role: MarketRole::Maker,
-            ask_fee,
-            bid_user_id: bid.user_id,
-            bid_order_id: bid.id,
-            bid_role: MarketRole::Taker,
-            bid_fee,
-        });
-        Trade {
-            id: trade_id,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64(),
-            market: bid.market.clone(),
-            base_asset: bid.base_asset.clone(),
-            quote_asset: bid.quote_asset.clone(),
-            price,
-            amount,
-            quote_amount,
-            ask_user_id: ask.user_id,
-            ask_order_id: ask.id,
-            ask_role: MarketRole::Maker,
-            ask_fee,
-            bid_user_id: bid.user_id,
-            bid_order_id: bid.id,
-            bid_role: MarketRole::Taker,
-            bid_fee,
+            maker_user_id: maker.user_id.clone(),
+            maker_order_id: maker.id.clone(),
+            maker_role: MarketRole::Maker,
+            maker_fee,
+            taker_user_id: taker.user_id.clone(),
+            taker_order_id: taker.id.clone(),
+            taker_role: MarketRole::Taker,
+            taker_fee,
+        };
+
+        // Log trade execution
+        Self::print_trade(&trade);
+
+        trade
+    }
+
+    fn calculate_trade_price(&self, taker: &Order, maker: &Order) -> Decimal {
+        match (taker.order_type, maker.order_type) {
+            // Market orders trade at the market price
+            (OrderType::Market, OrderType::Market) => self.market_price,
+
+            // Market order takes the price of the existing Limit order
+            (OrderType::Market, OrderType::Limit) => maker.price,
+            (OrderType::Limit, OrderType::Market) => taker.price,
+
+            // Limit orders always execute at the maker's price
+            (OrderType::Limit, OrderType::Limit) => maker.price,
         }
     }
 
-    /// Generates a unique trade ID
-    fn generate_trade_id() -> u64 {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static TRADE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
-        TRADE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+    pub fn print_bids(&self) {
+        let bids_sorted: Vec<Order> = self.bids.clone().into_sorted_vec();
+        let bids_reversed: Vec<Order> = bids_sorted.into_iter().rev().collect();
+        for bid in bids_reversed {
+            let price = match bid.order_type {
+                OrderType::Market => "Market".to_string(),
+                _ => bid.price.to_string(),
+            };
+            println!(
+                "{} {} , {} {} , {} {} , {} {} , {} {}",
+                "id:".green(),
+                bid.id,
+                "price:".green(),
+                price,
+                "amount:".green(),
+                bid.amount,
+                "remain:".green(),
+                bid.remain,
+                "Type:".blue(),
+                String::from(bid.order_type)
+            );
+        }
+    }
+
+    pub fn print_asks(&self) {
+        let asks_sorted: Vec<Order> = self.asks.clone().into_sorted_vec();
+        let asks_reversed: Vec<Order> = asks_sorted.into_iter().rev().collect();
+        for ask in asks_reversed {
+            let price = match ask.order_type {
+                OrderType::Market => "Market".to_string(),
+                _ => ask.price.to_string(),
+            };
+
+            println!(
+                "{} {} , {} {} , {} {} , {} {} , {} {}",
+                "id:".red(),
+                ask.id,
+                "price:".red(),
+                price,
+                "amount:".red(),
+                ask.amount,
+                "remain:".red(),
+                ask.remain,
+                "Type:".blue(),
+                String::from(ask.order_type)
+            );
+        }
     }
 
     fn print_order_book(&self) {
         println!("\n{}", "Order Book:".bold().white());
-
         println!("{}", "Bids (Buy Orders):".green().bold());
-        for bid in self.bids.iter() {
-            println!(
-                "{} {} , {} {} , {} {} , {} {}",
-                "id:".green(),
-                bid.id,
-                "price:".green(),
-                bid.price,
-                "amount:".green(),
-                bid.amount,
-                "remain:".green(),
-                bid.remain
-            );
-        }
-
+        self.print_bids();
         println!("{}", "Asks (Sell Orders):".red().bold());
-        for ask in self.asks.iter() {
-            println!(
-                "{} {} , {} {} , {} {} , {} {}",
-                "id:".red(),
-                ask.id,
-                "price:".red(),
-                ask.price,
-                "amount:".red(),
-                ask.amount,
-                "remain:".red(),
-                ask.remain
-            );
-        }
+        self.print_asks();
     }
+
     fn print_order(order: &Order) {
         println!(
-            "\nNew Order Arrived {} {} , {} {} , {} {}",
+            "\nNew Order Arrived {} {} , {} {} , {} {}, {} {}",
             "Order id:".blue(),
             order.id,
             "price:".blue(),
             order.price,
             "amount:".blue(),
-            order.amount
+            order.amount,
+            "Type:".blue(),
+            String::from(order.order_type)
         );
     }
 
@@ -333,14 +347,13 @@ impl OrderBook {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::order::{self, Order, OrderSide, OrderType};
+    use crate::models::order::{Order, OrderSide, OrderType};
     use env_logger;
-    use log::{debug, error, info, warn};
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
     fn create_order(
-        id: u64,
+        id: &str,
         side: OrderSide,
         price: &str,
         amount: &str,
@@ -348,14 +361,13 @@ mod tests {
         order_type: OrderType,
     ) -> Order {
         Order {
-            id,
+            id: id.to_string(),
             base_asset: "BTC".into(),
             quote_asset: "USD".into(),
             market: "BTC-USD".into(),
             order_type,
             side,
-            user_id: 1,
-            post_only: false,
+            user_id: "1".to_string(),
             price: Decimal::from_str(price).unwrap(),
             amount: Decimal::from_str(amount).unwrap(),
             maker_fee: Decimal::ZERO,
@@ -377,12 +389,12 @@ mod tests {
         let mut order_book = OrderBook::new();
 
         // Add a bid (buy order)
-        let bid = create_order(1, OrderSide::Buy, "50000", "1", 1.0, OrderType::Limit);
+        let bid = create_order("1", OrderSide::Buy, "50000", "1", 1.0, OrderType::Limit);
         let trades = order_book.add_order(bid);
         assert_eq!(trades.len(), 0); // No trades yet
 
         // Add an ask (sell order) that matches the bid
-        let ask = create_order(2, OrderSide::Sell, "50000", "1", 2.0, OrderType::Limit);
+        let ask = create_order("2", OrderSide::Sell, "50000", "1", 2.0, OrderType::Limit);
         let trades = order_book.add_order(ask);
         assert_eq!(trades.len(), 1); // One trade should occur
         println!("{:?}", trades);
@@ -390,8 +402,8 @@ mod tests {
         let trade = &trades[0];
         assert_eq!(trade.price, Decimal::from_str("50000").unwrap());
         assert_eq!(trade.amount, Decimal::from_str("1").unwrap());
-        assert_eq!(trade.ask_order_id, 2);
-        assert_eq!(trade.bid_order_id, 1);
+        assert_eq!(trade.taker_order_id, "2");
+        assert_eq!(trade.maker_order_id, "1");
 
         // Verify the order book is empty after the match
         assert!(order_book.bids.is_empty());
@@ -403,12 +415,12 @@ mod tests {
         let mut order_book = OrderBook::new();
 
         // Add a bid (buy order)
-        let bid = create_order(1, OrderSide::Buy, "50000", "2", 1.0, OrderType::Limit);
+        let bid = create_order("1", OrderSide::Buy, "50000", "2", 1.0, OrderType::Limit);
         let trades = order_book.add_order(bid);
         assert_eq!(trades.len(), 0); // No trades yet
 
         // Add an ask (sell order) that partially matches the bid
-        let ask = create_order(2, OrderSide::Sell, "50000", "1", 2.0, OrderType::Limit);
+        let ask = create_order("2", OrderSide::Sell, "50000", "1", 2.0, OrderType::Limit);
         let trades = order_book.add_order(ask);
         assert_eq!(trades.len(), 1); // One trade should occur
         println!("{:?}", trades);
@@ -422,7 +434,7 @@ mod tests {
         assert_eq!(order_book.bids.len(), 1);
         let remaining_bid = order_book.bids.peek().unwrap();
         println!("{:?}", remaining_bid);
-        assert_eq!(remaining_bid.id, 1);
+        assert_eq!(remaining_bid.id, "1");
         assert_eq!(remaining_bid.remain, Decimal::from_str("1").unwrap());
 
         // Verify the ask is fully filled and removed
@@ -434,11 +446,11 @@ mod tests {
         let mut order_book = OrderBook::new();
 
         // Add a bid (buy order)
-        let bid = create_order(1, OrderSide::Buy, "50000", "1", 1.0, OrderType::Limit);
+        let bid = create_order("1", OrderSide::Buy, "50000", "1", 1.0, OrderType::Limit);
         order_book.add_order(bid);
 
         // Cancel the bid
-        let canceled = order_book.cancel_order(1);
+        let canceled = order_book.cancel_order("1".to_string());
         assert_eq!(canceled, true);
 
         // Verify the bid is removed from the order book

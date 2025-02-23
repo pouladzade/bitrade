@@ -2,7 +2,6 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
-
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OrderType {
     Limit,  // A limit order with a specific price
@@ -60,14 +59,13 @@ impl From<OrderSide> for String {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Order {
     // Immutable order details
-    pub id: u64,
+    pub id: String,            // Unique order identifier
     pub base_asset: String,    // Base currency (e.g., BTC)
     pub quote_asset: String,   // Quote currency (e.g., USDT)
     pub market: String,        // Market identifier (e.g., BTC/USDT)
     pub order_type: OrderType, // Limit, Market, etc.
     pub side: OrderSide,       // Buy or Sell
-    pub user_id: u32,          // Owner of the order
-    pub post_only: bool,       // True if maker-only
+    pub user_id: String,          // Owner of the order
     pub price: Decimal,        // Order price
     pub amount: Decimal,       // Total amount
 
@@ -103,18 +101,19 @@ impl PartialOrd for Order {
 impl Ord for Order {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.side, other.side) {
-            (OrderSide::Buy, OrderSide::Buy) => {
-                // For bids, higher price comes first
-                other
-                    .price
-                    .cmp(&self.price)
-                    .then_with(|| self.create_time.total_cmp(&other.create_time))
-            }
             (OrderSide::Sell, OrderSide::Sell) => {
+                // For bids, higher price comes first
+                match other.price.cmp(&self.price) {
+                    Ordering::Equal => self.create_time.total_cmp(&other.create_time), // Time priority
+                    ordering => ordering,
+                }
+            }
+            (OrderSide::Buy, OrderSide::Buy) => {
                 // For asks, lower price comes first
-                self.price
-                    .cmp(&other.price)
-                    .then_with(|| self.create_time.total_cmp(&other.create_time))
+                match self.price.cmp(&other.price) {
+                    Ordering::Equal => self.create_time.total_cmp(&other.create_time), // Time priority
+                    ordering => ordering,
+                }
             }
             _ => panic!("Cannot compare orders with different sides"),
         }

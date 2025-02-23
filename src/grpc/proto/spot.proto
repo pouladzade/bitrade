@@ -11,7 +11,7 @@ service SpotService {
 }
 
 message ProtoTrade {
-    uint64 id = 1;
+    string id = 1;
     double timestamp = 2; // Unix timestamp
     string market = 3;
     string base_asset = 4;
@@ -20,28 +20,27 @@ message ProtoTrade {
     string amount = 7;
     string quote_amount = 8;
 
-    uint32 ask_user_id = 9;
-    uint64 ask_order_id = 10;
-    string ask_role = 11; // Maker/Taker
-    string ask_fee = 12;
+    string taker_user_id = 9;
+    string taker_order_id = 10;
+    string taker_role = 11; // Maker/Taker
+    string taker_fee = 12;
 
-    uint32 bid_user_id = 13;
-    uint64 bid_order_id = 14;
-    string bid_role = 15;
-    string bid_fee = 16;
+    string maker_user_id = 13;
+    string maker_order_id = 14;
+    string maker_role = 15;
+    string maker_fee = 16;
 }
 message AddOrderResponse {
-repeated ProtoTrade trades = 1;
+    string order_id = 1;
+    repeated ProtoTrade trades = 2;
 }
 message AddOrderRequest {
-  uint64 id = 1;
   string base_asset = 2;
   string quote_asset = 3;
   string market = 4;
   string order_type = 5;//LIMIT or MARKET
   string side = 6;//BUY or SELL
-  uint32 user_id = 7;
-  bool post_only = 8;
+  string user_id = 7;
   string price = 9;
   string amount = 10;
   string maker_fee = 11;
@@ -50,7 +49,7 @@ message AddOrderRequest {
 
 
 message CancelOrderRequest {
-    uint64 order_id = 1;
+    string order_id = 1;
 }
 
 message CancelOrderResponse {

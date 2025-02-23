@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Trade {
-    pub id: u64,
+    pub id: String,
     pub timestamp: f64, // Unix timestamp
     pub market: String,
     pub base_asset: String,
@@ -12,15 +12,15 @@ pub struct Trade {
     pub amount: Decimal,
     pub quote_amount: Decimal,
 
-    pub ask_user_id: u32,
-    pub ask_order_id: u64,
-    pub ask_role: MarketRole, // Maker/Taker
-    pub ask_fee: Decimal,
+    pub taker_user_id: String,
+    pub taker_order_id: String,
+    pub taker_role: MarketRole, // Maker/Taker
+    pub taker_fee: Decimal,
 
-    pub bid_user_id: u32,
-    pub bid_order_id: u64,
-    pub bid_role: MarketRole,
-    pub bid_fee: Decimal,
+    pub maker_user_id: String,
+    pub maker_order_id: String,
+    pub maker_role: MarketRole,
+    pub maker_fee: Decimal,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]

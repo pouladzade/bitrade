@@ -48,12 +48,12 @@ impl Market {
             .map_err(|e| anyhow::anyhow!("Failed to send task to worker thread: {}", e))
     }
 
-    pub fn add_order(&self, order: Order) -> Result<Vec<Trade>> {
+    pub fn add_order(&self, order: Order) -> Result<(Vec<Trade>, String)> {
         let (sender, receiver) = std::sync::mpsc::channel();
-
+        let order_id = order.id.clone();
         self.submit_task(Box::new(move |order_book: &mut OrderBook| {
             let trades = order_book.add_order(order);
-            let _ = sender.send(trades);
+            let _ = sender.send((trades, order_id));
         }))?;
 
         receiver
@@ -61,7 +61,7 @@ impl Market {
             .context("Failed to receive order execution result")
     }
 
-    pub fn get_order_by_id(&self, order_id: u64) -> Result<Option<Order>> {
+    pub fn get_order_by_id(&self, order_id: String) -> Result<Option<Order>> {
         let order_book = self
             .order_book
             .read()
@@ -69,7 +69,7 @@ impl Market {
         Ok(order_book.get_order_by_id(order_id)) // No need for a task
     }
 
-    pub fn cancel_order(&self, order_id: u64) -> Result<bool> {
+    pub fn cancel_order(&self, order_id: String) -> Result<bool> {
         let (sender, receiver) = std::sync::mpsc::channel();
 
         self.submit_task(Box::new(move |order_book: &mut OrderBook| {

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::grpc::spot::spot_service_server::SpotServiceServer;
-use crate::{config::app_config::AppConfig, grpc::service::SpotServiceImpl};
+use crate::grpc::service::SpotServiceImpl;
 use log::{error, info};
 use tonic::transport::Server;
 

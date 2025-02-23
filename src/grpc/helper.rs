@@ -1,39 +1,74 @@
-use std::str::FromStr;
-use anyhow::{Result, anyhow};
-use rust_decimal::Decimal;
-
+use crate::grpc::spot::{AddOrderRequest, ProtoTrade};
 use crate::models::{
     order::{Order, OrderSide, OrderType},
     trade::{MarketRole, Trade},
 };
-use crate::grpc::spot::{AddOrderRequest, ProtoTrade};
-
+use crate::utils;
+use anyhow::{anyhow, Context, Result};
+use rust_decimal::Decimal;
+use std::str::FromStr;
+use tonic::Status;
 
 impl TryFrom<AddOrderRequest> for Order {
     type Error = anyhow::Error;
 
     fn try_from(req: AddOrderRequest) -> Result<Self> {
+        let order_type = OrderType::try_from(req.order_type.as_str())
+            .map_err(|e| Status::invalid_argument(format!("Invalid order type: {}", e)))?;
+
+        let side = OrderSide::try_from(req.side.as_str())
+            .map_err(|e| Status::invalid_argument(format!("Invalid order side: {}", e)))?;
+
+        let mut price = Decimal::from_str(&req.price)
+            .context("Failed to parse price as Decimal")
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        // For market orders, we adjust the price to extreme values:
+        // - For a market buy order, we set the price to Decimal::MAX so that it matches
+        //   against the lowest available ask price.
+        // - For a market sell order, we set the price to Decimal::MIN so that it matches
+        //   against the highest available bid price.
+        // Note: The actual execution price will be determined during the matching process.
+        match (order_type, side) {
+            (OrderType::Market, OrderSide::Buy) => {
+                price = Decimal::MAX;
+            }
+            (OrderType::Market, OrderSide::Sell) => {
+                price = Decimal::MIN;
+            }
+            _ => {}
+        }
+
+        let amount = Decimal::from_str(&req.amount)
+            .context("Failed to parse amount as Decimal")
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        let maker_fee = Decimal::from_str("0")
+            .context("Failed to parse maker_fee as Decimal")
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let taker_fee = Decimal::from_str("0")
+            .context("Failed to parse taker_fee as Decimal")
+            .map_err(|e| Status::internal(e.to_string()))?;
+
         Ok(Order {
-            id: req.id,
+            id: utils::generate_uuid_id(),
             base_asset: req.base_asset,
             quote_asset: req.quote_asset,
             market: req.market,
-            order_type: OrderType::try_from(req.order_type.as_str())
-                .map_err(|_| anyhow!("Invalid order type: {}", req.order_type))?,
-            side: OrderSide::try_from(req.side.as_str())
-                .map_err(|_| anyhow!("Invalid order side: {}", req.side))?,
+            order_type,
+            side,
             user_id: req.user_id,
-            post_only: req.post_only,
-            price: Decimal::from_str(&req.price).map_err(|e| anyhow!("Invalid price format: {}", e))?,
-            amount: Decimal::from_str(&req.amount).map_err(|e| anyhow!("Invalid amount format: {}", e))?,
-            maker_fee: Decimal::from_str(&req.maker_fee).map_err(|e| anyhow!("Invalid maker fee format: {}", e))?,
-            taker_fee: Decimal::from_str(&req.taker_fee).map_err(|e| anyhow!("Invalid taker fee format: {}", e))?,
+            price,
+            amount,
+            maker_fee,
+            taker_fee,
             create_time: 0.0,
-            remain: Decimal::from_str("0").unwrap_or(Decimal::ZERO),
-            frozen: Decimal::from_str("0").unwrap_or(Decimal::ZERO),
-            filled_base: Decimal::from_str("0").unwrap_or(Decimal::ZERO),
-            filled_quote: Decimal::from_str("0").unwrap_or(Decimal::ZERO),
-            filled_fee: Decimal::from_str("0").unwrap_or(Decimal::ZERO),
+            remain: amount,
+            frozen: Decimal::ZERO,
+            filled_base: Decimal::ZERO,
+            filled_quote: Decimal::ZERO,
+            filled_fee: Decimal::ZERO,
             update_time: 0.0,
             partially_filled: false,
         })
@@ -43,14 +78,12 @@ impl TryFrom<AddOrderRequest> for Order {
 impl From<Order> for AddOrderRequest {
     fn from(order: Order) -> Self {
         AddOrderRequest {
-            id: order.id,
             base_asset: order.base_asset,
             quote_asset: order.quote_asset,
             market: order.market,
             order_type: order.order_type.into(),
             side: order.side.into(),
             user_id: order.user_id,
-            post_only: order.post_only,
             price: order.price.to_string(),
             amount: order.amount.to_string(),
             maker_fee: order.maker_fee.to_string(),
@@ -75,17 +108,17 @@ impl TryFrom<ProtoTrade> for Trade {
                 .map_err(|e| anyhow!("Invalid amount format: {}", e))?,
             quote_amount: Decimal::from_str(&proto.quote_amount)
                 .map_err(|e| anyhow!("Invalid quote amount format: {}", e))?,
-            ask_user_id: proto.ask_user_id,
-            ask_order_id: proto.ask_order_id,
-            ask_role: MarketRole::try_from(proto.ask_role.as_str())
-                .map_err(|_| anyhow!("Invalid ask role: {}", proto.ask_role))?,
-            ask_fee: Decimal::from_str(&proto.ask_fee)
+            taker_user_id: proto.taker_user_id,
+            taker_order_id: proto.taker_order_id,
+            taker_role: MarketRole::try_from(proto.taker_role.as_str())
+                .map_err(|_| anyhow!("Invalid ask role: {}", proto.taker_role))?,
+            taker_fee: Decimal::from_str(&proto.taker_fee)
                 .map_err(|e| anyhow!("Invalid ask fee format: {}", e))?,
-            bid_user_id: proto.bid_user_id,
-            bid_order_id: proto.bid_order_id,
-            bid_role: MarketRole::try_from(proto.bid_role.as_str())
-                .map_err(|_| anyhow!("Invalid bid role: {}", proto.bid_role))?,
-            bid_fee: Decimal::from_str(&proto.bid_fee)
+            maker_user_id: proto.maker_user_id,
+            maker_order_id: proto.maker_order_id,
+            maker_role: MarketRole::try_from(proto.maker_role.as_str())
+                .map_err(|_| anyhow!("Invalid bid role: {}", proto.maker_role))?,
+            maker_fee: Decimal::from_str(&proto.maker_fee)
                 .map_err(|e| anyhow!("Invalid bid fee format: {}", e))?,
         })
     }
@@ -102,14 +135,14 @@ impl From<Trade> for ProtoTrade {
             price: trade.price.to_string(),
             amount: trade.amount.to_string(),
             quote_amount: trade.quote_amount.to_string(),
-            ask_user_id: trade.ask_user_id,
-            ask_order_id: trade.ask_order_id,
-            ask_role: trade.ask_role.into(),
-            ask_fee: trade.ask_fee.to_string(),
-            bid_user_id: trade.bid_user_id,
-            bid_order_id: trade.bid_order_id,
-            bid_role: trade.bid_role.into(),
-            bid_fee: trade.bid_fee.to_string(),
+            taker_user_id: trade.taker_user_id,
+            taker_order_id: trade.taker_order_id,
+            taker_role: trade.taker_role.into(),
+            taker_fee: trade.taker_fee.to_string(),
+            maker_user_id: trade.maker_user_id,
+            maker_order_id: trade.maker_order_id,
+            maker_role: trade.maker_role.into(),
+            maker_fee: trade.maker_fee.to_string(),
         }
     }
 }
@@ -117,7 +150,7 @@ impl From<Trade> for ProtoTrade {
 impl From<&Trade> for ProtoTrade {
     fn from(trade: &Trade) -> Self {
         ProtoTrade {
-            id: trade.id,
+            id: trade.id.clone(),
             timestamp: trade.timestamp,
             market: trade.market.clone(),
             base_asset: trade.base_asset.clone(),
@@ -125,14 +158,14 @@ impl From<&Trade> for ProtoTrade {
             price: trade.price.to_string(),
             amount: trade.amount.to_string(),
             quote_amount: trade.quote_amount.to_string(),
-            ask_user_id: trade.ask_user_id,
-            ask_order_id: trade.ask_order_id,
-            ask_role: trade.ask_role.clone().into(),
-            ask_fee: trade.ask_fee.to_string(),
-            bid_user_id: trade.bid_user_id,
-            bid_order_id: trade.bid_order_id,
-            bid_role: trade.bid_role.clone().into(),
-            bid_fee: trade.bid_fee.to_string(),
+            taker_user_id: trade.taker_user_id.clone(),
+            taker_order_id: trade.taker_order_id.clone(),
+            taker_role: trade.taker_role.clone().into(),
+            taker_fee: trade.taker_fee.to_string(),
+            maker_user_id: trade.maker_user_id.clone(),
+            maker_order_id: trade.maker_order_id.clone(),
+            maker_role: trade.maker_role.clone().into(),
+            maker_fee: trade.maker_fee.to_string(),
         }
     }
 }
