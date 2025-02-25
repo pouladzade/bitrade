@@ -8,12 +8,15 @@ service SpotService {
     rpc AddOrder (AddOrderRequest) returns (AddOrderResponse);
     rpc CancelOrder (CancelOrderRequest) returns (CancelOrderResponse);
     rpc CancelAllOrders (CancelAllOrdersRequest) returns (CancelAllOrdersResponse);
+    rpc CreateMarket (CreateMarketRequest) returns (CreateMarketResponse);    
+    rpc StopMarket (StopMarketRequest) returns (StopMarketResponse);
+    rpc StartMarket (StartMarketRequest) returns (StartMarketResponse);
 }
 
 message ProtoTrade {
     string id = 1;
     double timestamp = 2; // Unix timestamp
-    string market = 3;
+    string market_id = 3;
     string base_asset = 4;
     string quote_asset = 5;
     string price = 6;
@@ -32,12 +35,12 @@ message ProtoTrade {
 }
 message AddOrderResponse {
     string order_id = 1;
-    repeated ProtoTrade trades = 2;
+    repeated ProtoTrade trades = 4;
 }
 message AddOrderRequest {
   string base_asset = 2;
   string quote_asset = 3;
-  string market = 4;
+  string market_id = 4;
   string order_type = 5;//LIMIT or MARKET
   string side = 6;//BUY or SELL
   string user_id = 7;
@@ -50,15 +53,52 @@ message AddOrderRequest {
 
 message CancelOrderRequest {
     string order_id = 1;
+    string market_id = 2;
 }
 
 message CancelOrderResponse {
     bool success = 1;
+    string order_id = 2;
+    string market_id = 3;
 }
 
 message CancelAllOrdersRequest {
+
+    string market_id = 1;
 }
 
 message CancelAllOrdersResponse {
     bool success = 1;
+    string market_id = 2;
+}
+
+message CreateMarketRequest {
+    string market_id = 1;
+    string base_asset = 2;
+    string quote_asset = 3;
+    uint32 pool_size = 4;
+}
+
+message CreateMarketResponse {
+    bool success = 1;
+    string market_id = 2;
+
+}
+
+message StopMarketRequest {
+    string market_id = 1;
+}
+
+message StopMarketResponse {
+    bool success = 1;
+    string market_id = 2;
+}
+
+message StartMarketRequest {
+    string market_id = 1;
+}
+
+message StartMarketResponse {
+    bool success = 1;
+    string market_id = 2;
 }

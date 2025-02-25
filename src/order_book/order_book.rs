@@ -220,7 +220,7 @@ impl OrderBook {
         let trade = Trade {
             id: trade_id,
             timestamp,
-            market: taker.market.clone(),
+            market_id: taker.market_id.clone(),
             base_asset: taker.base_asset.clone(),
             quote_asset: taker.quote_asset.clone(),
             price: self.market_price,
@@ -357,14 +357,14 @@ mod tests {
         side: OrderSide,
         price: &str,
         amount: &str,
-        create_time: f64,
+        create_time: i64,
         order_type: OrderType,
     ) -> Order {
         Order {
             id: id.to_string(),
             base_asset: "BTC".into(),
             quote_asset: "USD".into(),
-            market: "BTC-USD".into(),
+            market_id: "BTC-USD".into(),
             order_type,
             side,
             user_id: "1".to_string(),
@@ -389,12 +389,12 @@ mod tests {
         let mut order_book = OrderBook::new();
 
         // Add a bid (buy order)
-        let bid = create_order("1", OrderSide::Buy, "50000", "1", 1.0, OrderType::Limit);
+        let bid = create_order("1", OrderSide::Buy, "50000", "1", 1, OrderType::Limit);
         let trades = order_book.add_order(bid);
         assert_eq!(trades.len(), 0); // No trades yet
 
         // Add an ask (sell order) that matches the bid
-        let ask = create_order("2", OrderSide::Sell, "50000", "1", 2.0, OrderType::Limit);
+        let ask = create_order("2", OrderSide::Sell, "50000", "1", 2, OrderType::Limit);
         let trades = order_book.add_order(ask);
         assert_eq!(trades.len(), 1); // One trade should occur
         println!("{:?}", trades);
@@ -415,12 +415,12 @@ mod tests {
         let mut order_book = OrderBook::new();
 
         // Add a bid (buy order)
-        let bid = create_order("1", OrderSide::Buy, "50000", "2", 1.0, OrderType::Limit);
+        let bid = create_order("1", OrderSide::Buy, "50000", "2", 1, OrderType::Limit);
         let trades = order_book.add_order(bid);
         assert_eq!(trades.len(), 0); // No trades yet
 
         // Add an ask (sell order) that partially matches the bid
-        let ask = create_order("2", OrderSide::Sell, "50000", "1", 2.0, OrderType::Limit);
+        let ask = create_order("2", OrderSide::Sell, "50000", "1", 2, OrderType::Limit);
         let trades = order_book.add_order(ask);
         assert_eq!(trades.len(), 1); // One trade should occur
         println!("{:?}", trades);
@@ -446,7 +446,7 @@ mod tests {
         let mut order_book = OrderBook::new();
 
         // Add a bid (buy order)
-        let bid = create_order("1", OrderSide::Buy, "50000", "1", 1.0, OrderType::Limit);
+        let bid = create_order("1", OrderSide::Buy, "50000", "1", 1, OrderType::Limit);
         order_book.add_order(bid);
 
         // Cancel the bid

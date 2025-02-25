@@ -1,20 +1,19 @@
 //use bitrade::{config::app_config::load_config};
 use bitrade::grpc::server::start_server;
+use tracing_subscriber::{self, FmtSubscriber};
 
 #[tokio::main]
 async fn main() {
-    // let config = load_config().unwrap_or_else(|err| {
-    //     eprintln!("Failed to load config: {}", err);
-    //     std::process::exit(1);
-    // });
+    // let subscriber = FmtSubscriber::builder()
+    //     .with_max_level(tracing::Level::DEBUG) // Enable debug logs
+    //     .finish();
 
-    // println!("gRPC Server: {}:{}", config.grpc.host, config.grpc.port);
-    // println!("Database URL: {:?}", config.database);
-    // println!("Log Level: {}", config.log.level);
-    // println!("Analytics Enabled: {:?}", config.features.analytics);
-    // println!("Cache Enabled: {:?}", config.features.cache);
-    // let market = &config.market;
-    // println!("Market: {:?}", market);
+    // tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+
+    // tracing::debug!("This debug message will be visible now!");
+    // tracing_subscriber::fmt::init(); // Initialize the default subscriber
+
+    // tracing::debug!("This is a debug message!");
 
     start_server("[::]:50020".to_string()).await.unwrap();
 }

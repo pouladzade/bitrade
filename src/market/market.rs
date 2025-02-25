@@ -14,10 +14,12 @@ type Task = Box<dyn FnOnce(&mut OrderBook) + Send + 'static>;
 pub struct Market {
     task_sender: channel::Sender<Task>,
     order_book: Arc<RwLock<OrderBook>>, // RwLock allows concurrent reads
+    started: bool,
+    market_id: String,
 }
 
 impl Market {
-    pub fn new(pool_size: usize) -> Self {
+    pub fn new(market_id: String, pool_size: usize) -> Self {
         let (task_sender, task_receiver) = channel::unbounded();
         let order_book = Arc::new(RwLock::new(OrderBook::new())); // Use RwLock
 
@@ -39,13 +41,30 @@ impl Market {
         Market {
             task_sender,
             order_book,
+            started: false,
+            market_id,
         }
     }
 
+    pub fn start_market(&mut self) {
+        self.started = true;
+        println!("Started market {}", self.market_id);
+    }
+
+    pub fn stop_market(&mut self) {
+        self.started = false;
+        print!("Stopped market {}", self.market_id);
+    }
+
     fn submit_task(&self, task: Task) -> Result<()> {
-        self.task_sender
-            .send(task)
-            .map_err(|e| anyhow::anyhow!("Failed to send task to worker thread: {}", e))
+        println!("submit_task market_id: {} started : {}", self.market_id, self.started);
+        if self.started {
+            self.task_sender
+                .send(task)
+                .map_err(|e| anyhow::anyhow!("Failed to send task to worker thread: {}", e))
+        } else {
+            Err(anyhow::anyhow!("Market is not started"))
+        }
     }
 
     pub fn add_order(&self, order: Order) -> Result<(Vec<Trade>, String)> {

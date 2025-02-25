@@ -62,10 +62,10 @@ pub struct Order {
     pub id: String,            // Unique order identifier
     pub base_asset: String,    // Base currency (e.g., BTC)
     pub quote_asset: String,   // Quote currency (e.g., USDT)
-    pub market: String,        // Market identifier (e.g., BTC/USDT)
+    pub market_id: String,     // Market identifier (e.g., BTC/USDT)
     pub order_type: OrderType, // Limit, Market, etc.
     pub side: OrderSide,       // Buy or Sell
-    pub user_id: String,          // Owner of the order
+    pub user_id: String,       // Owner of the order
     pub price: Decimal,        // Order price
     pub amount: Decimal,       // Total amount
 
@@ -73,7 +73,7 @@ pub struct Order {
     pub maker_fee: Decimal, // Fee if executed as maker
     pub taker_fee: Decimal, // Fee if executed as taker
 
-    pub create_time: f64, // Unix timestamp when order was created
+    pub create_time: i64, // Unix timestamp when order was created
 
     // Mutable order details
     pub remain: Decimal,        // Remaining unfilled amount
@@ -81,7 +81,7 @@ pub struct Order {
     pub filled_base: Decimal,   // Filled amount in base asset
     pub filled_quote: Decimal,  // Filled amount in quote asset
     pub filled_fee: Decimal,    // Accumulated fee paid
-    pub update_time: f64,       // Last update timestamp
+    pub update_time: i64,       // Last update timestamp
     pub partially_filled: bool, // Indicates if order is partially filled
 }
 impl PartialEq for Order {
@@ -104,14 +104,14 @@ impl Ord for Order {
             (OrderSide::Sell, OrderSide::Sell) => {
                 // For bids, higher price comes first
                 match other.price.cmp(&self.price) {
-                    Ordering::Equal => self.create_time.total_cmp(&other.create_time), // Time priority
+                    Ordering::Equal => self.create_time.cmp(&other.create_time), // Time priority
                     ordering => ordering,
                 }
             }
             (OrderSide::Buy, OrderSide::Buy) => {
                 // For asks, lower price comes first
                 match self.price.cmp(&other.price) {
-                    Ordering::Equal => self.create_time.total_cmp(&other.create_time), // Time priority
+                    Ordering::Equal => self.create_time.cmp(&other.create_time), // Time priority
                     ordering => ordering,
                 }
             }

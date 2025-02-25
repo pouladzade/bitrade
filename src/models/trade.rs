@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 pub struct Trade {
     pub id: String,
     pub timestamp: f64, // Unix timestamp
-    pub market: String,
+    pub market_id: String,
     pub base_asset: String,
     pub quote_asset: String,
     pub price: Decimal,

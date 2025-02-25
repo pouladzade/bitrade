@@ -5,6 +5,7 @@ use crate::models::{
 };
 use crate::utils;
 use anyhow::{anyhow, Context, Result};
+use chrono::Utc;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use tonic::Status;
@@ -55,7 +56,7 @@ impl TryFrom<AddOrderRequest> for Order {
             id: utils::generate_uuid_id(),
             base_asset: req.base_asset,
             quote_asset: req.quote_asset,
-            market: req.market,
+            market_id: req.market_id,
             order_type,
             side,
             user_id: req.user_id,
@@ -63,13 +64,13 @@ impl TryFrom<AddOrderRequest> for Order {
             amount,
             maker_fee,
             taker_fee,
-            create_time: 0.0,
+            create_time: Utc::now().timestamp_millis(),
             remain: amount,
             frozen: Decimal::ZERO,
             filled_base: Decimal::ZERO,
             filled_quote: Decimal::ZERO,
             filled_fee: Decimal::ZERO,
-            update_time: 0.0,
+            update_time:  Utc::now().timestamp_millis(),
             partially_filled: false,
         })
     }
@@ -80,7 +81,7 @@ impl From<Order> for AddOrderRequest {
         AddOrderRequest {
             base_asset: order.base_asset,
             quote_asset: order.quote_asset,
-            market: order.market,
+            market_id: order.market_id,
             order_type: order.order_type.into(),
             side: order.side.into(),
             user_id: order.user_id,
@@ -99,7 +100,7 @@ impl TryFrom<ProtoTrade> for Trade {
         Ok(Trade {
             id: proto.id,
             timestamp: proto.timestamp,
-            market: proto.market,
+            market_id: proto.market_id,
             base_asset: proto.base_asset,
             quote_asset: proto.quote_asset,
             price: Decimal::from_str(&proto.price)
@@ -129,7 +130,7 @@ impl From<Trade> for ProtoTrade {
         ProtoTrade {
             id: trade.id,
             timestamp: trade.timestamp,
-            market: trade.market,
+            market_id: trade.market_id,
             base_asset: trade.base_asset,
             quote_asset: trade.quote_asset,
             price: trade.price.to_string(),
@@ -152,7 +153,7 @@ impl From<&Trade> for ProtoTrade {
         ProtoTrade {
             id: trade.id.clone(),
             timestamp: trade.timestamp,
-            market: trade.market.clone(),
+            market_id: trade.market_id.clone(),
             base_asset: trade.base_asset.clone(),
             quote_asset: trade.quote_asset.clone(),
             price: trade.price.to_string(),
