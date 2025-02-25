@@ -5,7 +5,6 @@ use crate::models::{
 };
 use crate::utils;
 use anyhow::{anyhow, Context, Result};
-use chrono::Utc;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use tonic::Status;
@@ -64,13 +63,13 @@ impl TryFrom<AddOrderRequest> for Order {
             amount,
             maker_fee,
             taker_fee,
-            create_time: Utc::now().timestamp_millis(),
+            create_time: utils::get_utc_now_time_millisecond(),
             remain: amount,
             frozen: Decimal::ZERO,
             filled_base: Decimal::ZERO,
             filled_quote: Decimal::ZERO,
             filled_fee: Decimal::ZERO,
-            update_time:  Utc::now().timestamp_millis(),
+            update_time:  utils::get_utc_now_time_millisecond(),
             partially_filled: false,
         })
     }

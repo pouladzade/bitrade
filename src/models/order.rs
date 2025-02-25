@@ -2,6 +2,60 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Represents an order in the trading system.
+///
+/// # Fields
+///
+/// * `id` - Unique order identifier.
+/// * `base_asset` - Base currency (e.g., BTC).
+/// * `quote_asset` - Quote currency (e.g., USDT).
+/// * `market_id` - Market identifier (e.g., BTC/USDT).
+/// * `order_type` - Type of the order (e.g., Limit, Market).
+/// * `side` - Side of the order (Buy or Sell).
+/// * `user_id` - Owner of the order.
+/// * `price` - Order price.
+/// * `amount` - Total amount of the order.
+///
+/// * `maker_fee` - Fee if executed as maker.
+/// * `taker_fee` - Fee if executed as taker.
+///
+/// * `create_time` - Unix timestamp when the order was created.
+///
+/// * `remain` - Remaining unfilled amount.
+/// * `frozen` - Frozen funds for the order.
+/// * `filled_base` - Filled amount in base asset.
+/// * `filled_quote` - Filled amount in quote asset.
+/// * `filled_fee` - Accumulated fee paid.
+/// * `update_time` - Last update timestamp.
+/// * `partially_filled` - Indicates if the order is partially filled.
+pub struct Order {
+    // Immutable order details
+    pub id: String,
+    pub base_asset: String,
+    pub quote_asset: String,
+    pub market_id: String,
+
+    pub order_type: OrderType,
+    pub side: OrderSide,
+    pub user_id: String,
+    pub price: Decimal,
+    pub amount: Decimal,
+    // Fee structure
+    pub maker_fee: Decimal,
+    pub taker_fee: Decimal,
+
+    pub create_time: i64,
+    // Mutable order details
+    pub remain: Decimal,
+    pub frozen: Decimal,
+    pub filled_base: Decimal,
+    pub filled_quote: Decimal,
+    pub filled_fee: Decimal,
+    pub update_time: i64,
+    pub partially_filled: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OrderType {
     Limit,  // A limit order with a specific price
@@ -56,34 +110,6 @@ impl From<OrderSide> for String {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Order {
-    // Immutable order details
-    pub id: String,            // Unique order identifier
-    pub base_asset: String,    // Base currency (e.g., BTC)
-    pub quote_asset: String,   // Quote currency (e.g., USDT)
-    pub market_id: String,     // Market identifier (e.g., BTC/USDT)
-    pub order_type: OrderType, // Limit, Market, etc.
-    pub side: OrderSide,       // Buy or Sell
-    pub user_id: String,       // Owner of the order
-    pub price: Decimal,        // Order price
-    pub amount: Decimal,       // Total amount
-
-    // Fee structure
-    pub maker_fee: Decimal, // Fee if executed as maker
-    pub taker_fee: Decimal, // Fee if executed as taker
-
-    pub create_time: i64, // Unix timestamp when order was created
-
-    // Mutable order details
-    pub remain: Decimal,        // Remaining unfilled amount
-    pub frozen: Decimal,        // Frozen funds for the order
-    pub filled_base: Decimal,   // Filled amount in base asset
-    pub filled_quote: Decimal,  // Filled amount in quote asset
-    pub filled_fee: Decimal,    // Accumulated fee paid
-    pub update_time: i64,       // Last update timestamp
-    pub partially_filled: bool, // Indicates if order is partially filled
-}
 impl PartialEq for Order {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id

@@ -1,6 +1,5 @@
 //use bitrade::{config::app_config::load_config};
 use bitrade::grpc::server::start_server;
-use tracing_subscriber::{self, FmtSubscriber};
 
 #[tokio::main]
 async fn main() {

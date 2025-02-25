@@ -15,7 +15,7 @@ service SpotService {
 
 message ProtoTrade {
     string id = 1;
-    double timestamp = 2; // Unix timestamp
+    int64 timestamp = 2; // Unix timestamp
     string market_id = 3;
     string base_asset = 4;
     string quote_asset = 5;

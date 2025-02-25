@@ -1,12 +1,12 @@
 use crate::models::order::{Order, OrderSide, OrderType};
 use crate::models::trade::{MarketRole, Trade};
-use crate::utils::generate_uuid_id;
+use crate::utils::{self, generate_uuid_id};
 use rust_decimal::Decimal;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 
 use colored::*;
-use std::time::{SystemTime, UNIX_EPOCH}; // Import the crate
+
 /// Order Book implementation using Binary Heaps (Priority Queues) and a Hash Map.
 ///
 /// This structure uses a combination of Binary Heaps for the bids and asks,
@@ -35,9 +35,9 @@ pub(crate) trait OrderBookTrait {
     fn new() -> Self;
     fn add_order(&mut self, order: Order) -> Vec<Trade>;
     fn cancel_order(&mut self, order_id: String) -> bool;
-    fn get_order_count_by_side(&self, side: OrderSide) -> usize;
+
     fn get_order_by_id(&self, order_id: String) -> Option<Order>;
-    fn get_order_by_user(&self, user_id: String) -> Vec<Order>;
+
     fn cancel_all_orders(&mut self) -> bool;
 }
 
@@ -162,22 +162,9 @@ impl OrderBookTrait for OrderBook {
             false
         }
     }
-    fn get_order_count_by_side(&self, side: OrderSide) -> usize {
-        match side {
-            OrderSide::Buy => self.bids.len(),
-            OrderSide::Sell => self.asks.len(),
-        }
-    }
+
     fn get_order_by_id(&self, order_id: String) -> Option<Order> {
         self.orders.get(&order_id).cloned()
-    }
-
-    fn get_order_by_user(&self, user_id: String) -> Vec<Order> {
-        self.orders
-            .values()
-            .filter(|o| o.user_id == user_id)
-            .cloned()
-            .collect()
     }
 
     fn cancel_all_orders(&mut self) -> bool {
@@ -192,10 +179,7 @@ impl OrderBook {
     fn execute_trade(&mut self, taker: &mut Order, maker: &mut Order, amount: Decimal) -> Trade {
         let trade_id = generate_uuid_id().to_string();
         self.market_price = self.calculate_trade_price(taker, maker);
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
+        let timestamp = utils::get_utc_now_time_millisecond();
 
         // Determine fees based on order type (market or limit)
         let maker_fee = if maker.order_type == OrderType::Market {
