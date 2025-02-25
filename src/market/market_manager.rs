@@ -3,8 +3,8 @@ use crate::models::order::Order;
 use crate::models::trade::Trade;
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use tracing::field::debug;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct MarketManager {
@@ -119,5 +119,119 @@ impl MarketManager {
             market.cancel_all_orders()?;
         }
         Ok(())
+    }
+}
+#[cfg(test)]
+mod tests {
+    use crate::{
+        models::order::{OrderSide, OrderType},
+        tests::test_models,
+    };
+
+    use super::*;
+    const MARKET_ID: &str = "market_id";
+    #[test]
+    fn test_create_market() {
+        let manager = MarketManager::new();
+        assert!(manager.create_market(MARKET_ID, 10).is_ok());
+        let markets = manager.markets.read().unwrap();
+        assert!(markets.contains_key(MARKET_ID));
+    }
+
+    #[test]
+    fn test_start_market() {
+        let manager = MarketManager::new();
+        manager.create_market(MARKET_ID, 10).unwrap();
+        assert!(manager.start_market(MARKET_ID).is_ok());
+    }
+
+    #[test]
+    fn test_stop_market() {
+        let manager = MarketManager::new();
+        manager.create_market(MARKET_ID, 10).unwrap();
+        manager.start_market(MARKET_ID).unwrap();
+        assert!(manager.stop_market(MARKET_ID).is_ok());
+    }
+
+    #[test]
+    fn test_add_order() {
+        let manager = MarketManager::new();
+        
+        manager.create_market(MARKET_ID, 10).unwrap();
+        let order =
+            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
+        let result = manager.add_order(order.clone());
+        assert!(result.is_err());
+        manager.start_market(MARKET_ID).unwrap();
+        let result = manager.add_order(order);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cancel_order() {
+        let manager = MarketManager::new();
+      
+        manager.create_market(MARKET_ID, 10).unwrap();
+        manager.start_market(MARKET_ID).unwrap();
+        let order =
+            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
+        let order_id = order.id.clone();
+        manager.add_order(order).unwrap();
+        assert!(manager.cancel_order(MARKET_ID, order_id).unwrap());
+    }
+
+    #[test]
+    fn test_get_order_by_id() {
+        let manager = MarketManager::new();
+        manager.create_market(MARKET_ID, 10).unwrap();
+        manager.start_market(MARKET_ID).unwrap();
+        let order =
+            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
+        let order_id = order.id.clone();
+        manager.add_order(order.clone()).unwrap();
+        let fetched_order = manager.get_order_by_id(MARKET_ID, order_id).unwrap();
+        assert_eq!(fetched_order, Some(order));
+    }
+
+    #[test]
+    fn test_cancel_all_orders() {
+        let manager = MarketManager::new();
+        manager.create_market(MARKET_ID, 10).unwrap();
+        manager.start_market(MARKET_ID).unwrap();
+        let order1 =
+            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
+        let order2 =
+            test_models::create_order(OrderSide::Buy, "200", "20", OrderType::Limit, MARKET_ID);
+        manager.add_order(order1).unwrap();
+        manager.add_order(order2).unwrap();
+        assert!(manager.cancel_all_orders(MARKET_ID).unwrap());
+    }
+
+    #[test]
+    fn test_cancel_all_orders_global() {
+        let manager = MarketManager::new();
+        let market_id1= "test_market1";
+        let market_id2= "test_market2";
+        manager.create_market(market_id1, 10).unwrap();
+        manager.start_market(market_id1).unwrap();
+        manager.create_market(market_id2, 10).unwrap();
+        manager.start_market(market_id2).unwrap();
+        let order1 = test_models::create_order(
+            OrderSide::Buy,
+            "100",
+            "10",
+            OrderType::Limit,
+            market_id1,
+        );
+        let order2 = test_models::create_order(
+            OrderSide::Buy,
+            "200",
+            "20",
+            OrderType::Limit,
+            market_id2,
+        );
+        manager.add_order(order1).unwrap();
+        manager.add_order(order2).unwrap();
+        assert!(manager.cancel_all_orders_global().is_ok());
     }
 }
