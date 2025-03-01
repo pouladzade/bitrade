@@ -5,7 +5,7 @@ use crate::models::{
 };
 use crate::utils;
 use anyhow::{anyhow, Context, Result};
-use rust_decimal::Decimal;
+use bigdecimal::{BigDecimal, Zero};
 use std::str::FromStr;
 use tonic::Status;
 
@@ -19,35 +19,35 @@ impl TryFrom<AddOrderRequest> for Order {
         let side = OrderSide::try_from(req.side.as_str())
             .map_err(|e| Status::invalid_argument(format!("Invalid order side: {}", e)))?;
 
-        let mut price = Decimal::from_str(&req.price)
+        let mut price = BigDecimal::from_str(&req.price)
             .context("Failed to parse price as Decimal")
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         // For market orders, we adjust the price to extreme values:
-        // - For a market buy order, we set the price to Decimal::MAX so that it matches
+        // - For a market buy order, we set the price to BigDecimal::MAX so that it matches
         //   against the lowest available ask price.
-        // - For a market sell order, we set the price to Decimal::MIN so that it matches
+        // - For a market sell order, we set the price to BigDecimal::MIN so that it matches
         //   against the highest available bid price.
         // Note: The actual execution price will be determined during the matching process.
         match (order_type, side) {
             (OrderType::Market, OrderSide::Buy) => {
-                price = Decimal::MAX;
+                price = BigDecimal::from(u64::MAX);
             }
             (OrderType::Market, OrderSide::Sell) => {
-                price = Decimal::MIN;
+                price = BigDecimal::from(0);
             }
             _ => {}
         }
 
-        let amount = Decimal::from_str(&req.amount)
+        let amount = BigDecimal::from_str(&req.amount)
             .context("Failed to parse amount as Decimal")
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-        let maker_fee = Decimal::from_str("0")
+        let maker_fee = BigDecimal::from_str("0")
             .context("Failed to parse maker_fee as Decimal")
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let taker_fee = Decimal::from_str("0")
+        let taker_fee = BigDecimal::from_str("0")
             .context("Failed to parse taker_fee as Decimal")
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -60,16 +60,16 @@ impl TryFrom<AddOrderRequest> for Order {
             side,
             user_id: req.user_id,
             price,
-            amount,
+            amount: amount.clone(),
             maker_fee,
             taker_fee,
             create_time: utils::get_utc_now_time_millisecond(),
             remain: amount,
-            frozen: Decimal::ZERO,
-            filled_base: Decimal::ZERO,
-            filled_quote: Decimal::ZERO,
-            filled_fee: Decimal::ZERO,
-            update_time:  utils::get_utc_now_time_millisecond(),
+            frozen: BigDecimal::zero(),
+            filled_base: BigDecimal::zero(),
+            filled_quote: BigDecimal::zero(),
+            filled_fee: BigDecimal::zero(),
+            update_time: utils::get_utc_now_time_millisecond(),
             partially_filled: false,
         })
     }
@@ -102,23 +102,23 @@ impl TryFrom<ProtoTrade> for Trade {
             market_id: proto.market_id,
             base_asset: proto.base_asset,
             quote_asset: proto.quote_asset,
-            price: Decimal::from_str(&proto.price)
+            price: BigDecimal::from_str(&proto.price)
                 .map_err(|e| anyhow!("Invalid price format: {}", e))?,
-            amount: Decimal::from_str(&proto.amount)
+            amount: BigDecimal::from_str(&proto.amount)
                 .map_err(|e| anyhow!("Invalid amount format: {}", e))?,
-            quote_amount: Decimal::from_str(&proto.quote_amount)
+            quote_amount: BigDecimal::from_str(&proto.quote_amount)
                 .map_err(|e| anyhow!("Invalid quote amount format: {}", e))?,
             taker_user_id: proto.taker_user_id,
             taker_order_id: proto.taker_order_id,
             taker_role: MarketRole::try_from(proto.taker_role.as_str())
                 .map_err(|_| anyhow!("Invalid ask role: {}", proto.taker_role))?,
-            taker_fee: Decimal::from_str(&proto.taker_fee)
+            taker_fee: BigDecimal::from_str(&proto.taker_fee)
                 .map_err(|e| anyhow!("Invalid ask fee format: {}", e))?,
             maker_user_id: proto.maker_user_id,
             maker_order_id: proto.maker_order_id,
             maker_role: MarketRole::try_from(proto.maker_role.as_str())
                 .map_err(|_| anyhow!("Invalid bid role: {}", proto.maker_role))?,
-            maker_fee: Decimal::from_str(&proto.maker_fee)
+            maker_fee: BigDecimal::from_str(&proto.maker_fee)
                 .map_err(|e| anyhow!("Invalid bid fee format: {}", e))?,
         })
     }

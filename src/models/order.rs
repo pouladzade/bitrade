@@ -1,4 +1,4 @@
-use rust_decimal::Decimal;
+use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -39,19 +39,19 @@ pub struct Order {
     pub order_type: OrderType,
     pub side: OrderSide,
     pub user_id: String,
-    pub price: Decimal,
-    pub amount: Decimal,
+    pub price: BigDecimal,
+    pub amount: BigDecimal,
     // Fee structure
-    pub maker_fee: Decimal,
-    pub taker_fee: Decimal,
+    pub maker_fee: BigDecimal,
+    pub taker_fee: BigDecimal,
 
     pub create_time: i64,
     // Mutable order details
-    pub remain: Decimal,
-    pub frozen: Decimal,
-    pub filled_base: Decimal,
-    pub filled_quote: Decimal,
-    pub filled_fee: Decimal,
+    pub remain: BigDecimal,
+    pub frozen: BigDecimal,
+    pub filled_base: BigDecimal,
+    pub filled_quote: BigDecimal,
+    pub filled_fee: BigDecimal,
     pub update_time: i64,
     pub partially_filled: bool,
 }

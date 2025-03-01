@@ -1,11 +1,11 @@
-use rust_decimal::Decimal;
+use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 /// Represents a trade in the market.
 ///
 /// # Fields
-/// 
+///
 /// * `id` - Unique identifier for the trade.
 /// * `timestamp` - Unix timestamp of when the trade occurred.
 /// * `market_id` - Identifier for the market where the trade took place.
@@ -28,19 +28,19 @@ pub struct Trade {
     pub market_id: String,
     pub base_asset: String,
     pub quote_asset: String,
-    pub price: Decimal,
-    pub amount: Decimal,
-    pub quote_amount: Decimal,
+    pub price: BigDecimal,
+    pub amount: BigDecimal,
+    pub quote_amount: BigDecimal,
 
     pub taker_user_id: String,
     pub taker_order_id: String,
     pub taker_role: MarketRole, // Maker/Taker
-    pub taker_fee: Decimal,
+    pub taker_fee: BigDecimal,
 
     pub maker_user_id: String,
     pub maker_order_id: String,
     pub maker_role: MarketRole,
-    pub maker_fee: Decimal,
+    pub maker_fee: BigDecimal,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]

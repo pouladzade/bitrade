@@ -1,0 +1,37 @@
+[package]
+name = "database"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Database
+diesel = { version = "2.1.0", features = ["postgres", "r2d2", "numeric", "chrono"] }
+
+
+diesel_migrations = { version = "2.2.0" }
+r2d2 = "0.8.10"
+
+# Utilities
+dotenv = "0.15.0"
+bigdecimal = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.23", features = ["serde"] }
+uuid = { version = "1.3.0", features = ["v4", "serde"] }
+
+# Serialization
+serde = { version = "1.0.159", features = ["derive"] }
+serde_json = "1.0.95"
+
+# Error handling
+thiserror = "1.0.40"
+anyhow = "1.0.70"
+
+# Async
+tokio = { version = "1.27.0", features = ["full"] }
+futures = "0.3.28"
+structopt = { version = "0.3", default-features = false }
+# Logging
+log = "0.4.17"
+env_logger = "0.10.0"
+
+[build-dependencies]
+diesel_migrations = { version = "2.1.0" }

@@ -1,12 +1,15 @@
 {
   "cSpell.words": [
+    "bigdecimal",
     "bitrade",
+    "chrono",
     "Deque",
     "dotenv",
     "matchengine",
     "prec",
     "prost",
     "protos",
-    "serde"
+    "serde",
+    "structopt"
   ]
 }

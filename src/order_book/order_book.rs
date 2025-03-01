@@ -1,7 +1,7 @@
 use crate::models::order::{Order, OrderSide, OrderType};
 use crate::models::trade::{MarketRole, Trade};
-use crate::utils::{self, generate_uuid_id};
-use rust_decimal::Decimal;
+use crate::utils::{self, generate_uuid_id, is_zero};
+use bigdecimal::BigDecimal;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 
@@ -46,7 +46,7 @@ pub struct OrderBook {
     bids: BinaryHeap<Order>,        // Max-heap for bids (buy orders)
     asks: BinaryHeap<Order>,        // Min-heap for asks (sell orders)
     orders: HashMap<String, Order>, // Order ID to Order mapping
-    market_price: Decimal,
+    market_price: BigDecimal,
 }
 
 impl OrderBookTrait for OrderBook {
@@ -58,7 +58,7 @@ impl OrderBookTrait for OrderBook {
             orders: HashMap::new(),
 
             //TODO: Get the market price from the database OR from the market
-            market_price: Decimal::try_from(10000).unwrap(),
+            market_price: BigDecimal::try_from(10000).unwrap(),
         }
     }
 
@@ -81,27 +81,27 @@ impl OrderBookTrait for OrderBook {
                     }
 
                     // Calculate the trade amount
-                    let trade_amount = order.remain.min(ask.remain);
+                    let trade_amount = order.remain.clone().min(ask.remain.clone());
 
                     // Execute the trade
                     let trade = self.execute_trade(&mut order, &mut ask, trade_amount);
                     trades.push(trade);
 
                     // Remove the ask order if fully filled
-                    if ask.remain.is_zero() {
+                    if ask.remain == BigDecimal::from(0) {
                         self.orders.remove(&ask.id);
                     } else {
                         self.asks.push(ask); // Push the modified ask back into the heap
                     }
 
                     // Stop if the buy order is fully filled
-                    if order.remain.is_zero() {
+                    if is_zero(&order.remain) {
                         break;
                     }
                 }
 
                 // Add the remaining buy order to the order book
-                if !order.remain.is_zero() {
+                if !is_zero(&order.remain) {
                     self.bids.push(order.clone());
                     self.orders.insert(order.id.clone(), order);
                 }
@@ -121,26 +121,26 @@ impl OrderBookTrait for OrderBook {
                     }
 
                     // Calculate the trade amount
-                    let trade_amount = order.remain.min(bid.remain);
+                    let trade_amount = order.remain.clone().min(bid.remain.clone());
                     // Execute the trade
                     let trade = self.execute_trade(&mut order, &mut bid, trade_amount);
                     trades.push(trade);
 
                     // Remove the bid order if fully filled
-                    if bid.remain.is_zero() {
+                    if is_zero(&bid.remain) {
                         self.orders.remove(&bid.id);
                     } else {
                         self.bids.push(bid); // Push the modified bid back into the heap
                     }
 
                     // Stop if the sell order is fully filled
-                    if order.remain.is_zero() {
+                    if is_zero(&order.remain) {
                         break;
                     }
                 }
 
                 // Add the remaining sell order to the order book
-                if !order.remain.is_zero() {
+                if !is_zero(&order.remain) {
                     self.asks.push(order.clone());
                     self.orders.insert(order.id.clone(), order);
                 }
@@ -176,29 +176,29 @@ impl OrderBookTrait for OrderBook {
 }
 
 impl OrderBook {
-    fn execute_trade(&mut self, taker: &mut Order, maker: &mut Order, amount: Decimal) -> Trade {
+    fn execute_trade(&mut self, taker: &mut Order, maker: &mut Order, amount: BigDecimal) -> Trade {
         let trade_id = generate_uuid_id().to_string();
         self.market_price = self.calculate_trade_price(taker, maker);
         let timestamp = utils::get_utc_now_time_millisecond();
 
         // Determine fees based on order type (market or limit)
         let maker_fee = if maker.order_type == OrderType::Market {
-            maker.taker_fee
+            maker.taker_fee.clone()
         } else {
-            maker.maker_fee
-        } * amount;
+            maker.maker_fee.clone()
+        } * amount.clone();
 
         let taker_fee = if taker.order_type == OrderType::Market {
-            taker.taker_fee
+            taker.taker_fee.clone()
         } else {
-            taker.maker_fee
-        } * amount;
+            taker.maker_fee.clone()
+        } * amount.clone();
 
         // Update remaining amounts after deducting fees
-        taker.remain -= amount - taker_fee;
-        maker.remain -= amount - maker_fee;
+        taker.remain -= amount.clone() - taker_fee.clone();
+        maker.remain -= amount.clone() - maker_fee.clone();
 
-        let quote_amount = amount * self.market_price;
+        let quote_amount = amount.clone() * self.market_price.clone();
 
         // Construct the trade object
         let trade = Trade {
@@ -207,8 +207,8 @@ impl OrderBook {
             market_id: taker.market_id.clone(),
             base_asset: taker.base_asset.clone(),
             quote_asset: taker.quote_asset.clone(),
-            price: self.market_price,
-            amount,
+            price: self.market_price.clone(),
+            amount:amount,
             quote_amount,
             maker_user_id: maker.user_id.clone(),
             maker_order_id: maker.id.clone(),
@@ -226,17 +226,17 @@ impl OrderBook {
         trade
     }
 
-    fn calculate_trade_price(&self, taker: &Order, maker: &Order) -> Decimal {
+    fn calculate_trade_price(&self, taker: &Order, maker: &Order) -> BigDecimal {
         match (taker.order_type, maker.order_type) {
             // Market orders trade at the market price
-            (OrderType::Market, OrderType::Market) => self.market_price,
+            (OrderType::Market, OrderType::Market) => self.market_price.clone(),
 
             // Market order takes the price of the existing Limit order
-            (OrderType::Market, OrderType::Limit) => maker.price,
-            (OrderType::Limit, OrderType::Market) => taker.price,
+            (OrderType::Market, OrderType::Limit) => maker.price.clone(),
+            (OrderType::Limit, OrderType::Market) => taker.price.clone(),
 
             // Limit orders always execute at the maker's price
-            (OrderType::Limit, OrderType::Limit) => maker.price,
+            (OrderType::Limit, OrderType::Limit) => maker.price.clone(),
         }
     }
 
@@ -332,8 +332,8 @@ impl OrderBook {
 mod tests {
     use super::*;
     use crate::models::order::{Order, OrderSide, OrderType};
+    use bigdecimal::BigDecimal;
     use env_logger;
-    use rust_decimal::Decimal;
     use std::str::FromStr;
 
     fn create_order(
@@ -352,16 +352,16 @@ mod tests {
             order_type,
             side,
             user_id: "1".to_string(),
-            price: Decimal::from_str(price).unwrap(),
-            amount: Decimal::from_str(amount).unwrap(),
-            maker_fee: Decimal::ZERO,
-            taker_fee: Decimal::ZERO,
+            price: BigDecimal::from_str(price).unwrap(),
+            amount: BigDecimal::from_str(amount).unwrap(),
+            maker_fee: BigDecimal::from(0),
+            taker_fee: BigDecimal::from(0),
             create_time,
-            remain: Decimal::from_str(amount).unwrap(),
-            frozen: Decimal::ZERO,
-            filled_base: Decimal::ZERO,
-            filled_quote: Decimal::ZERO,
-            filled_fee: Decimal::ZERO,
+            remain: BigDecimal::from_str(amount).unwrap(),
+            frozen: BigDecimal::from(0),
+            filled_base: BigDecimal::from(0),
+            filled_quote: BigDecimal::from(0),
+            filled_fee: BigDecimal::from(0),
             update_time: create_time,
             partially_filled: true,
         }
@@ -384,8 +384,8 @@ mod tests {
         println!("{:?}", trades);
         // Verify the trade details
         let trade = &trades[0];
-        assert_eq!(trade.price, Decimal::from_str("50000").unwrap());
-        assert_eq!(trade.amount, Decimal::from_str("1").unwrap());
+        assert_eq!(trade.price, BigDecimal::from_str("50000").unwrap());
+        assert_eq!(trade.amount, BigDecimal::from_str("1").unwrap());
         assert_eq!(trade.taker_order_id, "2");
         assert_eq!(trade.maker_order_id, "1");
 
@@ -410,8 +410,8 @@ mod tests {
         println!("{:?}", trades);
         // Verify the trade details
         let trade = &trades[0];
-        assert_eq!(trade.price, Decimal::from_str("50000").unwrap());
-        assert_eq!(trade.amount, Decimal::from_str("1").unwrap());
+        assert_eq!(trade.price, BigDecimal::from_str("50000").unwrap());
+        assert_eq!(trade.amount, BigDecimal::from_str("1").unwrap());
 
         // Verify the remaining bid in the order book
         // assert_eq!(order_book.asks.len(), 1);
@@ -419,7 +419,7 @@ mod tests {
         let remaining_bid = order_book.bids.peek().unwrap();
         println!("{:?}", remaining_bid);
         assert_eq!(remaining_bid.id, "1");
-        assert_eq!(remaining_bid.remain, Decimal::from_str("1").unwrap());
+        assert_eq!(remaining_bid.remain, BigDecimal::from_str("1").unwrap());
 
         // Verify the ask is fully filled and removed
         assert!(order_book.asks.is_empty());
