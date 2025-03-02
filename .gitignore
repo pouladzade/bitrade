@@ -5,3 +5,4 @@ target
 *.profraw
 Makefile
 .vscode
+.env
