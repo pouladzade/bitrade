@@ -1,7 +1,7 @@
 use crate::grpc::spot::{AddOrderRequest, ProtoTrade};
 use crate::models::{
-    order::{Order, OrderSide, OrderType},
-    trade::{MarketRole, Trade},
+    trade_order::{TradeOrder, OrderSide, OrderType},
+    matched_trade::MatchedTrade,
 };
 use crate::utils;
 use anyhow::{anyhow, Context, Result};
@@ -9,7 +9,7 @@ use bigdecimal::{BigDecimal, Zero};
 use std::str::FromStr;
 use tonic::Status;
 
-impl TryFrom<AddOrderRequest> for Order {
+impl TryFrom<AddOrderRequest> for TradeOrder {
     type Error = anyhow::Error;
 
     fn try_from(req: AddOrderRequest) -> Result<Self> {
@@ -51,10 +51,8 @@ impl TryFrom<AddOrderRequest> for Order {
             .context("Failed to parse taker_fee as Decimal")
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        Ok(Order {
+        Ok(TradeOrder {
             id: utils::generate_uuid_id(),
-            base_asset: req.base_asset,
-            quote_asset: req.quote_asset,
             market_id: req.market_id,
             order_type,
             side,
@@ -75,11 +73,9 @@ impl TryFrom<AddOrderRequest> for Order {
     }
 }
 
-impl From<Order> for AddOrderRequest {
-    fn from(order: Order) -> Self {
+impl From<TradeOrder> for AddOrderRequest {
+    fn from(order: TradeOrder) -> Self {
         AddOrderRequest {
-            base_asset: order.base_asset,
-            quote_asset: order.quote_asset,
             market_id: order.market_id,
             order_type: order.order_type.into(),
             side: order.side.into(),
@@ -92,16 +88,15 @@ impl From<Order> for AddOrderRequest {
     }
 }
 
-impl TryFrom<ProtoTrade> for Trade {
+impl TryFrom<ProtoTrade> for MatchedTrade {
     type Error = anyhow::Error;
 
     fn try_from(proto: ProtoTrade) -> Result<Self> {
-        Ok(Trade {
+        Ok(MatchedTrade {
             id: proto.id,
             timestamp: proto.timestamp,
             market_id: proto.market_id,
-            base_asset: proto.base_asset,
-            quote_asset: proto.quote_asset,
+
             price: BigDecimal::from_str(&proto.price)
                 .map_err(|e| anyhow!("Invalid price format: {}", e))?,
             amount: BigDecimal::from_str(&proto.amount)
@@ -110,66 +105,58 @@ impl TryFrom<ProtoTrade> for Trade {
                 .map_err(|e| anyhow!("Invalid quote amount format: {}", e))?,
             taker_user_id: proto.taker_user_id,
             taker_order_id: proto.taker_order_id,
-            taker_role: MarketRole::try_from(proto.taker_role.as_str())
-                .map_err(|_| anyhow!("Invalid ask role: {}", proto.taker_role))?,
+
             taker_fee: BigDecimal::from_str(&proto.taker_fee)
                 .map_err(|e| anyhow!("Invalid ask fee format: {}", e))?,
             maker_user_id: proto.maker_user_id,
             maker_order_id: proto.maker_order_id,
-            maker_role: MarketRole::try_from(proto.maker_role.as_str())
-                .map_err(|_| anyhow!("Invalid bid role: {}", proto.maker_role))?,
+
             maker_fee: BigDecimal::from_str(&proto.maker_fee)
                 .map_err(|e| anyhow!("Invalid bid fee format: {}", e))?,
         })
     }
 }
 
-impl From<Trade> for ProtoTrade {
-    fn from(trade: Trade) -> Self {
+impl From<MatchedTrade> for ProtoTrade {
+    fn from(trade: MatchedTrade) -> Self {
         ProtoTrade {
             id: trade.id,
             timestamp: trade.timestamp,
             market_id: trade.market_id,
-            base_asset: trade.base_asset,
-            quote_asset: trade.quote_asset,
             price: trade.price.to_string(),
             amount: trade.amount.to_string(),
             quote_amount: trade.quote_amount.to_string(),
             taker_user_id: trade.taker_user_id,
             taker_order_id: trade.taker_order_id,
-            taker_role: trade.taker_role.into(),
+
             taker_fee: trade.taker_fee.to_string(),
             maker_user_id: trade.maker_user_id,
             maker_order_id: trade.maker_order_id,
-            maker_role: trade.maker_role.into(),
+
             maker_fee: trade.maker_fee.to_string(),
         }
     }
 }
 
-impl From<&Trade> for ProtoTrade {
-    fn from(trade: &Trade) -> Self {
+impl From<&MatchedTrade> for ProtoTrade {
+    fn from(trade: &MatchedTrade) -> Self {
         ProtoTrade {
             id: trade.id.clone(),
             timestamp: trade.timestamp,
             market_id: trade.market_id.clone(),
-            base_asset: trade.base_asset.clone(),
-            quote_asset: trade.quote_asset.clone(),
             price: trade.price.to_string(),
             amount: trade.amount.to_string(),
             quote_amount: trade.quote_amount.to_string(),
             taker_user_id: trade.taker_user_id.clone(),
             taker_order_id: trade.taker_order_id.clone(),
-            taker_role: trade.taker_role.clone().into(),
             taker_fee: trade.taker_fee.to_string(),
             maker_user_id: trade.maker_user_id.clone(),
             maker_order_id: trade.maker_order_id.clone(),
-            maker_role: trade.maker_role.clone().into(),
             maker_fee: trade.maker_fee.to_string(),
         }
     }
 }
 
-pub fn convert_trades(trades: Vec<Trade>) -> Vec<ProtoTrade> {
+pub fn convert_trades(trades: Vec<MatchedTrade>) -> Vec<ProtoTrade> {
     trades.iter().map(ProtoTrade::from).collect()
 }

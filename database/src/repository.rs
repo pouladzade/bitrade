@@ -9,6 +9,7 @@ use anyhow::Result;
 use bigdecimal::BigDecimal;
 use diesel::prelude::*;
 
+#[derive(Debug, Clone)]
 pub struct Repository {
     pool: DbPool,
 }
@@ -85,12 +86,10 @@ impl Repository {
 
         let result = diesel::update(orders::table.find(order_id))
             .set((
-                orders::remain.eq(remain),
-                orders::frozen.eq(frozen),
+                orders::remain.eq(remain),                
                 orders::filled_base.eq(filled_base),
                 orders::filled_quote.eq(filled_quote),
-                orders::filled_fee.eq(filled_fee),
-                orders::partially_filled.eq(partially_filled),
+                orders::filled_fee.eq(filled_fee),                
                 orders::status.eq(status),
                 orders::update_time.eq(current_time),
             ))
@@ -422,4 +421,3 @@ impl DatabaseWriter for Repository {
         )
     }
 }
-

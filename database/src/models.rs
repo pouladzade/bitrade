@@ -153,13 +153,11 @@ pub struct Order {
     pub maker_fee: BigDecimal,
     pub taker_fee: BigDecimal,
     pub create_time: i64,
-    pub remain: BigDecimal,
-    pub frozen: BigDecimal,
+    pub remain: BigDecimal,    
     pub filled_base: BigDecimal,
     pub filled_quote: BigDecimal,
     pub filled_fee: BigDecimal,
     pub update_time: i64,
-    pub partially_filled: bool,
     pub status: String, // Will be converted to/from OrderStatus enum
 }
 
@@ -193,12 +191,10 @@ pub struct NewOrder {
     pub taker_fee: BigDecimal,
     pub create_time: i64,
     pub remain: BigDecimal,
-    pub frozen: BigDecimal,
     pub filled_base: BigDecimal,
     pub filled_quote: BigDecimal,
     pub filled_fee: BigDecimal,
     pub update_time: i64,
-    pub partially_filled: bool,
     pub status: String,
 }
 

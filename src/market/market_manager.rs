@@ -1,6 +1,6 @@
 use super::market::Market;
-use crate::models::order::Order;
-use crate::models::trade::Trade;
+use crate::models::trade_order::TradeOrder;
+use crate::models::matched_trade::MatchedTrade;
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -60,7 +60,7 @@ impl MarketManager {
         Ok(())
     }
 
-    pub fn add_order(&self, order: Order) -> Result<(Vec<Trade>, String)> {
+    pub fn add_order(&self, order: TradeOrder) -> Result<(Vec<MatchedTrade>, String)> {
         let markets = self
             .markets
             .read()
@@ -85,7 +85,7 @@ impl MarketManager {
         market.cancel_order(order_id)
     }
 
-    pub fn get_order_by_id(&self, market_id: &str, order_id: String) -> Result<Option<Order>> {
+    pub fn get_order_by_id(&self, market_id: &str, order_id: String) -> Result<Option<TradeOrder>> {
         let markets = self
             .markets
             .read()
@@ -124,7 +124,7 @@ impl MarketManager {
 #[cfg(test)]
 mod tests {
     use crate::{
-        models::order::{OrderSide, OrderType},
+        models::trade_order::{OrderSide, OrderType},
         tests::test_models,
     };
 
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn test_add_order() {
         let manager = MarketManager::new();
-        
+
         manager.create_market(MARKET_ID, 10).unwrap();
         let order =
             test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn test_cancel_order() {
         let manager = MarketManager::new();
-      
+
         manager.create_market(MARKET_ID, 10).unwrap();
         manager.start_market(MARKET_ID).unwrap();
         let order =
@@ -210,26 +210,16 @@ mod tests {
     #[test]
     fn test_cancel_all_orders_global() {
         let manager = MarketManager::new();
-        let market_id1= "test_market1";
-        let market_id2= "test_market2";
+        let market_id1 = "test_market1";
+        let market_id2 = "test_market2";
         manager.create_market(market_id1, 10).unwrap();
         manager.start_market(market_id1).unwrap();
         manager.create_market(market_id2, 10).unwrap();
         manager.start_market(market_id2).unwrap();
-        let order1 = test_models::create_order(
-            OrderSide::Buy,
-            "100",
-            "10",
-            OrderType::Limit,
-            market_id1,
-        );
-        let order2 = test_models::create_order(
-            OrderSide::Buy,
-            "200",
-            "20",
-            OrderType::Limit,
-            market_id2,
-        );
+        let order1 =
+            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, market_id1);
+        let order2 =
+            test_models::create_order(OrderSide::Buy, "200", "20", OrderType::Limit, market_id2);
         manager.add_order(order1).unwrap();
         manager.add_order(order2).unwrap();
         assert!(manager.cancel_all_orders_global().is_ok());

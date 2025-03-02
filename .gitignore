@@ -1,2 +1,7 @@
-/target
-.env
+target
+.idea
+.vscode
+.DS_Store
+*.profraw
+Makefile
+.vscode

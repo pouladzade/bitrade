@@ -1,5 +1,5 @@
-use crate::models::order::{Order, OrderSide, OrderType};
-use crate::models::trade::{MarketRole, Trade};
+use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
+use crate::models::matched_trade::{MarketRole, MatchedTrade};
 use crate::utils::{self, generate_uuid_id, is_zero};
 use bigdecimal::BigDecimal;
 use std::collections::BinaryHeap;
@@ -33,19 +33,19 @@ use colored::*;
 ///
 pub(crate) trait OrderBookTrait {
     fn new() -> Self;
-    fn add_order(&mut self, order: Order) -> Vec<Trade>;
+    fn add_order(&mut self, order: TradeOrder) -> Vec<MatchedTrade>;
     fn cancel_order(&mut self, order_id: String) -> bool;
 
-    fn get_order_by_id(&self, order_id: String) -> Option<Order>;
+    fn get_order_by_id(&self, order_id: String) -> Option<TradeOrder>;
 
     fn cancel_all_orders(&mut self) -> bool;
 }
 
 #[derive(Debug, Clone)]
 pub struct OrderBook {
-    bids: BinaryHeap<Order>,        // Max-heap for bids (buy orders)
-    asks: BinaryHeap<Order>,        // Min-heap for asks (sell orders)
-    orders: HashMap<String, Order>, // Order ID to Order mapping
+    bids: BinaryHeap<TradeOrder>,        // Max-heap for bids (buy orders)
+    asks: BinaryHeap<TradeOrder>,        // Min-heap for asks (sell orders)
+    orders: HashMap<String, TradeOrder>, // Order ID to Order mapping
     market_price: BigDecimal,
 }
 
@@ -62,7 +62,7 @@ impl OrderBookTrait for OrderBook {
         }
     }
 
-    fn add_order(&mut self, mut order: Order) -> Vec<Trade> {
+    fn add_order(&mut self, mut order: TradeOrder) -> Vec<MatchedTrade> {
         let mut trades = Vec::new();
         Self::print_order(&order);
         match order.side {
@@ -163,7 +163,7 @@ impl OrderBookTrait for OrderBook {
         }
     }
 
-    fn get_order_by_id(&self, order_id: String) -> Option<Order> {
+    fn get_order_by_id(&self, order_id: String) -> Option<TradeOrder> {
         self.orders.get(&order_id).cloned()
     }
 
@@ -176,7 +176,12 @@ impl OrderBookTrait for OrderBook {
 }
 
 impl OrderBook {
-    fn execute_trade(&mut self, taker: &mut Order, maker: &mut Order, amount: BigDecimal) -> Trade {
+    fn execute_trade(
+        &mut self,
+        taker: &mut TradeOrder,
+        maker: &mut TradeOrder,
+        amount: BigDecimal,
+    ) -> MatchedTrade {
         let trade_id = generate_uuid_id().to_string();
         self.market_price = self.calculate_trade_price(taker, maker);
         let timestamp = utils::get_utc_now_time_millisecond();
@@ -201,22 +206,19 @@ impl OrderBook {
         let quote_amount = amount.clone() * self.market_price.clone();
 
         // Construct the trade object
-        let trade = Trade {
+        let trade = MatchedTrade {
             id: trade_id,
             timestamp,
             market_id: taker.market_id.clone(),
-            base_asset: taker.base_asset.clone(),
-            quote_asset: taker.quote_asset.clone(),
             price: self.market_price.clone(),
-            amount:amount,
+            amount: amount,
             quote_amount,
             maker_user_id: maker.user_id.clone(),
             maker_order_id: maker.id.clone(),
-            maker_role: MarketRole::Maker,
             maker_fee,
             taker_user_id: taker.user_id.clone(),
             taker_order_id: taker.id.clone(),
-            taker_role: MarketRole::Taker,
+
             taker_fee,
         };
 
@@ -226,7 +228,7 @@ impl OrderBook {
         trade
     }
 
-    fn calculate_trade_price(&self, taker: &Order, maker: &Order) -> BigDecimal {
+    fn calculate_trade_price(&self, taker: &TradeOrder, maker: &TradeOrder) -> BigDecimal {
         match (taker.order_type, maker.order_type) {
             // Market orders trade at the market price
             (OrderType::Market, OrderType::Market) => self.market_price.clone(),
@@ -241,8 +243,8 @@ impl OrderBook {
     }
 
     pub fn print_bids(&self) {
-        let bids_sorted: Vec<Order> = self.bids.clone().into_sorted_vec();
-        let bids_reversed: Vec<Order> = bids_sorted.into_iter().rev().collect();
+        let bids_sorted: Vec<TradeOrder> = self.bids.clone().into_sorted_vec();
+        let bids_reversed: Vec<TradeOrder> = bids_sorted.into_iter().rev().collect();
         for bid in bids_reversed {
             let price = match bid.order_type {
                 OrderType::Market => "Market".to_string(),
@@ -265,8 +267,8 @@ impl OrderBook {
     }
 
     pub fn print_asks(&self) {
-        let asks_sorted: Vec<Order> = self.asks.clone().into_sorted_vec();
-        let asks_reversed: Vec<Order> = asks_sorted.into_iter().rev().collect();
+        let asks_sorted: Vec<TradeOrder> = self.asks.clone().into_sorted_vec();
+        let asks_reversed: Vec<TradeOrder> = asks_sorted.into_iter().rev().collect();
         for ask in asks_reversed {
             let price = match ask.order_type {
                 OrderType::Market => "Market".to_string(),
@@ -297,7 +299,7 @@ impl OrderBook {
         self.print_asks();
     }
 
-    fn print_order(order: &Order) {
+    fn print_order(order: &TradeOrder) {
         println!(
             "\nNew Order Arrived {} {} , {} {} , {} {}, {} {}",
             "Order id:".blue(),
@@ -311,9 +313,9 @@ impl OrderBook {
         );
     }
 
-    fn print_trade(trade: &Trade) {
+    fn print_trade(trade: &MatchedTrade) {
         println!(
-            "\nNew Trade Matched {} {} , {} {} , {} {} , {} {} , {} {}",
+            "\nNew Trade Matched {} {} , {} {} , {} {} , {} {}",
             "Trade id:".cyan(),
             trade.id,
             "price:".cyan(),
@@ -321,9 +323,7 @@ impl OrderBook {
             "amount:".cyan(),
             trade.amount,
             "quote_amount:".cyan(),
-            trade.quote_amount,
-            "quote_asset:".cyan(),
-            trade.quote_asset,
+            trade.quote_amount
         );
     }
 }
@@ -331,7 +331,7 @@ impl OrderBook {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::order::{Order, OrderSide, OrderType};
+    use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
     use bigdecimal::BigDecimal;
     use env_logger;
     use std::str::FromStr;
@@ -343,11 +343,9 @@ mod tests {
         amount: &str,
         create_time: i64,
         order_type: OrderType,
-    ) -> Order {
-        Order {
+    ) -> TradeOrder {
+        TradeOrder {
             id: id.to_string(),
-            base_asset: "BTC".into(),
-            quote_asset: "USD".into(),
             market_id: "BTC-USD".into(),
             order_type,
             side,

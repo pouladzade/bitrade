@@ -2,44 +2,20 @@ use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 #[derive(Debug, Serialize, Deserialize, Clone)]
-/// Represents a trade in the market.
-///
-/// # Fields
-///
-/// * `id` - Unique identifier for the trade.
-/// * `timestamp` - Unix timestamp of when the trade occurred.
-/// * `market_id` - Identifier for the market where the trade took place.
-/// * `base_asset` - The base asset involved in the trade.
-/// * `quote_asset` - The quote asset involved in the trade.
-/// * `price` - The price at which the trade was executed.
-/// * `amount` - The amount of the base asset that was traded.
-/// * `quote_amount` - The amount of the quote asset that was traded.
-/// * `taker_user_id` - Identifier for the user who took the trade.
-/// * `taker_order_id` - Identifier for the order placed by the taker.
-/// * `taker_role` - Role of the taker in the market (Maker/Taker).
-/// * `taker_fee` - Fee charged to the taker for the trade.
-/// * `maker_user_id` - Identifier for the user who made the trade.
-/// * `maker_order_id` - Identifier for the order placed by the maker.
-/// * `maker_role` - Role of the maker in the market.
-/// * `maker_fee` - Fee charged to the maker for the trade.
-pub struct Trade {
+pub struct MatchedTrade {
     pub id: String,
     pub timestamp: i64, // Unix timestamp
     pub market_id: String,
-    pub base_asset: String,
-    pub quote_asset: String,
     pub price: BigDecimal,
     pub amount: BigDecimal,
     pub quote_amount: BigDecimal,
 
     pub taker_user_id: String,
     pub taker_order_id: String,
-    pub taker_role: MarketRole, // Maker/Taker
     pub taker_fee: BigDecimal,
 
     pub maker_user_id: String,
     pub maker_order_id: String,
-    pub maker_role: MarketRole,
     pub maker_fee: BigDecimal,
 }
 

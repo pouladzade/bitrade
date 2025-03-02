@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use super::helper::convert_trades;
@@ -9,14 +10,18 @@ use crate::grpc::spot::{
     StopMarketRequest, StopMarketResponse,
 };
 use crate::market::market_manager::MarketManager;
-use crate::models::order::Order;
+use crate::models::trade_order::TradeOrder;
+use crate::utils;
 use anyhow::{Context, Result};
+use bigdecimal::BigDecimal;
+use database::models::NewMarket;
+use database::persistence::{self, ThreadSafePersistence};
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
-#[derive(Debug)]
 pub struct SpotServiceImpl {
     pub market_manager: Arc<RwLock<MarketManager>>,
+    pub persist: ThreadSafePersistence,
 }
 
 #[tonic::async_trait]
@@ -34,6 +39,22 @@ impl SpotService for SpotServiceImpl {
             .context("Failed to create market")
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        self.persist
+            .create_market(NewMarket {
+                id: market_id.clone(),
+                base_asset: req.base_asset.clone(),
+                quote_asset: req.quote_asset.clone(),
+                default_maker_fee: BigDecimal::from_str(&req.default_maker_fee)
+                    .context("Failed to parse amount as Decimal")
+                    .map_err(|e| Status::invalid_argument(e.to_string()))?,
+                default_taker_fee: BigDecimal::from_str(&req.default_taker_fee)
+                    .context("Failed to parse amount as Decimal")
+                    .map_err(|e| Status::invalid_argument(e.to_string()))?,
+                create_time: utils::get_utc_now_time_millisecond(),
+                update_time: utils::get_utc_now_time_millisecond(),
+            })
+            .context("Failed to persist market")
+            .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(CreateMarketResponse {
             success: true,
             market_id,
@@ -82,7 +103,7 @@ impl SpotService for SpotServiceImpl {
     ) -> Result<Response<AddOrderResponse>, Status> {
         let req = request.into_inner();
 
-        let order = Order::try_from(req)
+        let order = TradeOrder::try_from(req)
             .context("Failed to convert AddOrderRequest")
             .map_err(|e| Status::internal(e.to_string()))?;
         let market_manager = self.market_manager.write().await;

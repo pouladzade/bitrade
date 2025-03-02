@@ -29,13 +29,11 @@ use std::cmp::Ordering;
 /// * `filled_fee` - Accumulated fee paid.
 /// * `update_time` - Last update timestamp.
 /// * `partially_filled` - Indicates if the order is partially filled.
-pub struct Order {
+pub struct TradeOrder {
     // Immutable order details
     pub id: String,
-    pub base_asset: String,
-    pub quote_asset: String,
-    pub market_id: String,
 
+    pub market_id: String,
     pub order_type: OrderType,
     pub side: OrderSide,
     pub user_id: String,
@@ -110,21 +108,21 @@ impl From<OrderSide> for String {
     }
 }
 
-impl PartialEq for Order {
+impl PartialEq for TradeOrder {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for Order {}
+impl Eq for TradeOrder {}
 
-impl PartialOrd for Order {
+impl PartialOrd for TradeOrder {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Order {
+impl Ord for TradeOrder {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.side, other.side) {
             (OrderSide::Sell, OrderSide::Sell) => {

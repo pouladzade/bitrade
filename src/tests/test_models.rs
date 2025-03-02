@@ -3,7 +3,7 @@ use std::str::FromStr;
 use bigdecimal::BigDecimal;
 use chrono::Utc;
 
-use crate::models::order::{Order, OrderSide, OrderType};
+use crate::models::trade_order::{TradeOrder, OrderSide, OrderType};
 
 pub fn create_order(
     side: OrderSide,
@@ -11,17 +11,16 @@ pub fn create_order(
     amount: &str,
     order_type: OrderType,
     market_id: &str,
-) -> Order {
+) -> TradeOrder {
     let market_id = if market_id.is_empty() {
         "test".to_string()
     } else {
         market_id.to_string()
     };
 
-    Order {
+    TradeOrder {
         id: uuid::Uuid::new_v4().to_string(),
-        base_asset: "BTC".into(),
-        quote_asset: "USD".into(),
+
         market_id,
         order_type,
         side,

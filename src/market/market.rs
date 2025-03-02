@@ -3,8 +3,8 @@ use crossbeam::channel;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use crate::models::order::Order;
-use crate::models::trade::Trade;
+use crate::models::trade_order::TradeOrder;
+use crate::models::matched_trade::MatchedTrade;
 use crate::order_book::order_book::OrderBook;
 use crate::order_book::order_book::OrderBookTrait;
 
@@ -70,7 +70,7 @@ impl Market {
         }
     }
 
-    pub fn add_order(&self, order: Order) -> Result<(Vec<Trade>, String)> {
+    pub fn add_order(&self, order: TradeOrder) -> Result<(Vec<MatchedTrade>, String)> {
         let (sender, receiver) = std::sync::mpsc::channel();
         let order_id = order.id.clone();
         self.submit_task(Box::new(move |order_book: &mut OrderBook| {
@@ -83,7 +83,7 @@ impl Market {
             .context("Failed to receive order execution result")
     }
 
-    pub fn get_order_by_id(&self, order_id: String) -> Result<Option<Order>> {
+    pub fn get_order_by_id(&self, order_id: String) -> Result<Option<TradeOrder>> {
         let order_book = self
             .order_book
             .read()
@@ -121,7 +121,7 @@ impl Market {
 #[cfg(test)]
 mod tests {
     use crate::{
-        models::order::{OrderSide, OrderType},
+        models::trade_order::{OrderSide, OrderType},
         tests::test_models,
     };
 

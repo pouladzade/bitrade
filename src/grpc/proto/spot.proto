@@ -17,20 +17,17 @@ message ProtoTrade {
     string id = 1;
     int64 timestamp = 2; // Unix timestamp
     string market_id = 3;
-    string base_asset = 4;
-    string quote_asset = 5;
+
     string price = 6;
     string amount = 7;
     string quote_amount = 8;
 
     string taker_user_id = 9;
     string taker_order_id = 10;
-    string taker_role = 11; // Maker/Taker
     string taker_fee = 12;
 
     string maker_user_id = 13;
     string maker_order_id = 14;
-    string maker_role = 15;
     string maker_fee = 16;
 }
 message AddOrderResponse {
@@ -38,8 +35,6 @@ message AddOrderResponse {
     repeated ProtoTrade trades = 4;
 }
 message AddOrderRequest {
-  string base_asset = 2;
-  string quote_asset = 3;
   string market_id = 4;
   string order_type = 5;//LIMIT or MARKET
   string side = 6;//BUY or SELL
@@ -77,6 +72,8 @@ message CreateMarketRequest {
     string base_asset = 2;
     string quote_asset = 3;
     uint32 pool_size = 4;
+    string default_maker_fee = 5;
+    string default_taker_fee = 6;
 }
 
 message CreateMarketResponse {

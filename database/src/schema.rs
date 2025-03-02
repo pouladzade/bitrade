@@ -58,12 +58,10 @@ diesel::table! {
         taker_fee -> Numeric,
         create_time -> Int8,
         remain -> Numeric,
-        frozen -> Numeric,
         filled_base -> Numeric,
         filled_quote -> Numeric,
         filled_fee -> Numeric,
         update_time -> Int8,
-        partially_filled -> Bool,
         #[max_length = 20]
         status -> Varchar,
     }
