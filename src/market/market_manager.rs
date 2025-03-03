@@ -1,20 +1,26 @@
 use super::market::Market;
-use crate::models::trade_order::TradeOrder;
 use crate::models::matched_trade::MatchedTrade;
+use crate::models::trade_order::TradeOrder;
 use anyhow::{anyhow, Context, Result};
+use database::persistence::persistence::Persistence;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
 
 #[derive(Debug, Clone)]
-pub struct MarketManager {
-    markets: Arc<RwLock<HashMap<String, Market>>>,
+pub struct MarketManager<P>
+where
+    P: Persistence + 'static,
+{
+    markets: Arc<RwLock<HashMap<String, Market<P>>>>,
+    persister: Arc<P>,
 }
 
-impl MarketManager {
-    pub fn new() -> Self {
+impl<P: Persistence> MarketManager<P> {
+    pub fn new(persister: Arc<P>) -> Self {
         MarketManager {
             markets: Arc::new(RwLock::new(HashMap::new())),
+            persister,
         }
     }
 
@@ -25,7 +31,7 @@ impl MarketManager {
             .map_err(|e| anyhow!("Failed to acquire write lock on markets: {}", e))?;
 
         if !markets.contains_key(market_id) {
-            let market = Market::new(market_id.to_string(), pool_size);
+            let market = Market::new(self.persister.clone(), market_id.to_string(), pool_size);
             markets.insert(market_id.to_string(), market);
         }
         tracing::debug!(target: "market_manager", "Created market {}", market_id);
@@ -123,6 +129,8 @@ impl MarketManager {
 }
 #[cfg(test)]
 mod tests {
+    use database::mock::mock_thread_safe_persistence::MockThreadSafePersistence;
+
     use crate::{
         models::trade_order::{OrderSide, OrderType},
         tests::test_models,
@@ -130,9 +138,14 @@ mod tests {
 
     use super::*;
     const MARKET_ID: &str = "market_id";
+ 
+    fn create_persistence_mock() -> Arc<MockThreadSafePersistence> {
+
+         Arc::new(MockThreadSafePersistence::new())
+    }
     #[test]
     fn test_create_market() {
-        let manager = MarketManager::new();
+        let manager = MarketManager::new(create_persistence_mock());
         assert!(manager.create_market(MARKET_ID, 10).is_ok());
         let markets = manager.markets.read().unwrap();
         assert!(markets.contains_key(MARKET_ID));
@@ -140,14 +153,14 @@ mod tests {
 
     #[test]
     fn test_start_market() {
-        let manager = MarketManager::new();
+        let manager = MarketManager::new(create_persistence_mock());
         manager.create_market(MARKET_ID, 10).unwrap();
         assert!(manager.start_market(MARKET_ID).is_ok());
     }
 
     #[test]
     fn test_stop_market() {
-        let manager = MarketManager::new();
+        let manager = MarketManager::new(create_persistence_mock());
         manager.create_market(MARKET_ID, 10).unwrap();
         manager.start_market(MARKET_ID).unwrap();
         assert!(manager.stop_market(MARKET_ID).is_ok());
@@ -155,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_add_order() {
-        let manager = MarketManager::new();
+        let manager = MarketManager::new(create_persistence_mock());
 
         manager.create_market(MARKET_ID, 10).unwrap();
         let order =
@@ -169,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_cancel_order() {
-        let manager = MarketManager::new();
+        let manager = MarketManager::new(create_persistence_mock());
 
         manager.create_market(MARKET_ID, 10).unwrap();
         manager.start_market(MARKET_ID).unwrap();
@@ -182,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_get_order_by_id() {
-        let manager = MarketManager::new();
+        let manager = MarketManager::new(create_persistence_mock());
         manager.create_market(MARKET_ID, 10).unwrap();
         manager.start_market(MARKET_ID).unwrap();
         let order =
@@ -195,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_cancel_all_orders() {
-        let manager = MarketManager::new();
+        let manager = MarketManager::new(create_persistence_mock());
         manager.create_market(MARKET_ID, 10).unwrap();
         manager.start_market(MARKET_ID).unwrap();
         let order1 =
@@ -209,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_cancel_all_orders_global() {
-        let manager = MarketManager::new();
+        let manager = MarketManager::new(create_persistence_mock());
         let market_id1 = "test_market1";
         let market_id2 = "test_market2";
         manager.create_market(market_id1, 10).unwrap();

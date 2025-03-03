@@ -2,19 +2,61 @@ use anyhow::Result;
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
 
-use crate::db::establish_connection_pool;
-use crate::repository::Repository;
-use crate::{ models::*};
+use crate::establish_connection_pool;
+use crate::models::models::*;
+use crate::repository::repository::Repository;
 
+use super::persistence::Persistence;
 /// ThreadSafePersistence provides a thread-safe way to access the repository
 /// for persisting entities to the database.
-/// 
+///
 #[derive(Debug, Clone)]
 pub struct ThreadSafePersistence {
     repository: Arc<Repository>,
     write_lock: Arc<Mutex<()>>,
 }
+impl Persistence for ThreadSafePersistence {
+    // /// Clone this instance to share across threads
+    // fn clone_for_thread(&self) -> Self {
+    //     Self {
+    //         repository: Arc::clone(&self.repository),
+    //         write_lock: Arc::clone(&self.write_lock),
+    //     }
+    // }
 
+    // Balance operations
+    fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Balance>> {
+        debug!("Getting balance for user: {}, asset: {}", user_id, asset);
+        self.repository.get_balance(user_id, asset)
+    }
+
+    // Market operations
+    fn get_market(&self, market_id: &str) -> Result<Option<Market>> {
+        debug!("Getting market with ID: {}", market_id);
+        self.repository.get_market(market_id)
+    }
+
+    fn list_markets(&self) -> Result<Vec<Market>> {
+        debug!("Listing all markets");
+        self.repository.list_markets()
+    }
+
+    // Order operations
+    fn get_order(&self, order_id: &str) -> Result<Option<Order>> {
+        debug!("Getting order with ID: {}", order_id);
+        self.repository.get_order(order_id)
+    }
+
+    fn get_open_orders_for_market(&self, market_id: &str) -> Result<Vec<Order>> {
+        debug!("Getting open orders for market: {}", market_id);
+        self.repository.get_open_orders_for_market(market_id)
+    }
+
+    fn get_user_orders(&self, user_id: &str, limit: i64) -> Result<Vec<Order>> {
+        debug!("Getting orders for user: {} (limit: {})", user_id, limit);
+        self.repository.get_user_orders(user_id, limit)
+    }
+}
 impl ThreadSafePersistence {
     /// Create a new ThreadSafePersistence instance
     pub fn new(database_url: String, pool_size: u32) -> Self {
@@ -23,43 +65,6 @@ impl ThreadSafePersistence {
             repository: Arc::new(Repository::new(pool)),
             write_lock: Arc::new(Mutex::new(())),
         }
-    }
-
-    /// Clone this instance to share across threads
-    pub fn clone_for_thread(&self) -> Self {
-        Self {
-            repository: Arc::clone(&self.repository),
-            write_lock: Arc::clone(&self.write_lock),
-        }
-    }
-
-    // Read operations (don't need the write lock)
-
-    // Market operations
-    pub fn get_market(&self, market_id: &str) -> Result<Option<Market>> {
-        debug!("Getting market with ID: {}", market_id);
-        self.repository.get_market(market_id)
-    }
-
-    pub fn list_markets(&self) -> Result<Vec<Market>> {
-        debug!("Listing all markets");
-        self.repository.list_markets()
-    }
-
-    // Order operations
-    pub fn get_order(&self, order_id: &str) -> Result<Option<Order>> {
-        debug!("Getting order with ID: {}", order_id);
-        self.repository.get_order(order_id)
-    }
-
-    pub fn get_open_orders_for_market(&self, market_id: &str) -> Result<Vec<Order>> {
-        debug!("Getting open orders for market: {}", market_id);
-        self.repository.get_open_orders_for_market(market_id)
-    }
-
-    pub fn get_user_orders(&self, user_id: &str, limit: i64) -> Result<Vec<Order>> {
-        debug!("Getting orders for user: {} (limit: {})", user_id, limit);
-        self.repository.get_user_orders(user_id, limit)
     }
 
     // Trade operations
@@ -79,12 +84,6 @@ impl ThreadSafePersistence {
     pub fn get_user_trades(&self, user_id: &str, limit: i64) -> Result<Vec<Trade>> {
         debug!("Getting trades for user: {} (limit: {})", user_id, limit);
         self.repository.get_user_trades(user_id, limit)
-    }
-
-    // Balance operations
-    pub fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Balance>> {
-        debug!("Getting balance for user: {}, asset: {}", user_id, asset);
-        self.repository.get_balance(user_id, asset)
     }
 
     // Market stats operations

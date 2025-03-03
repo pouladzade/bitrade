@@ -1,10 +1,10 @@
 // repository.rs
 // Implementation of repository pattern for database operations
 
-use super::db::{DbConnection, DbPool};
-use super::models::*;
+use crate::{DbConnection, DbPool};
 use super::provider::{DatabaseReader, DatabaseWriter};
-use super::schema::*;
+use crate::models::schema::*;
+use crate::models::models::*;
 use anyhow::Result;
 use bigdecimal::BigDecimal;
 use diesel::prelude::*;

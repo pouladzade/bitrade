@@ -1,23 +1,28 @@
-mod config;
-mod db;
-pub mod models;
+
+pub mod mock;
+mod models;
 pub mod persistence;
-mod provider;
 mod repository;
-mod schema;
 
-// use db::establish_connection_pool;
-// use repository::Repository; // Export the new thread-safe persistence
-//                             // Initialize function for the library
-// pub fn init(database_url: String, pool_size: u32) -> Repository {
-//     // Setup logging
-//     env_logger::init();
 
-//     // Create connection pool
-//     let pool = establish_connection_pool(database_url, pool_size);
+use diesel::pg::PgConnection;
+use diesel::r2d2::{self, ConnectionManager};
+// Type alias for a pooled PostgreSQL connection
+pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
+pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
 
-//     // Create repository
-//     let repo = Repository::new(pool);
+/// Create a new database connection pool
+pub fn establish_connection_pool(database_url: String, pool_size: u32) -> DbPool {
+    let manager = ConnectionManager::<PgConnection>::new(database_url);
 
-//     repo
-// }
+    diesel::r2d2::Pool::builder()
+        .max_size(pool_size) // Maximum number of connections in the pool
+        .build(manager)
+        .expect("Failed to create connection pool")
+}
+
+/// Get a connection from the pool
+pub fn get_connection(pool: &DbPool) -> DbConnection {
+    pool.get()
+        .expect("Failed to get a connection from the pool")
+}

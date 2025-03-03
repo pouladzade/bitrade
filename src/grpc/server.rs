@@ -1,4 +1,4 @@
-use database::persistence::ThreadSafePersistence;
+use database::persistence::thread_safe_persistence::ThreadSafePersistence;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -14,10 +14,13 @@ pub async fn start_server(address: String) -> Result<(), Box<dyn std::error::Err
     info!("P2P Server listening on {}", address);
     let database_url = "postgres://postgres:mysecretpassword@localhost/postgres";
     let pool_size = 10;
+    let persister = ThreadSafePersistence::new(
+        database_url.to_string(),
+        pool_size,
+    );
     if let Err(e) = Server::builder()
         .add_service(SpotServiceServer::new(SpotServiceImpl {
-            market_manager: Arc::new(RwLock::new(MarketManager::new())),
-            persist: ThreadSafePersistence::new(database_url.to_string(), pool_size),
+            market_manager: Arc::new(RwLock::new(MarketManager::new(Arc::new(persister)))),
         }))
         .serve(adr)
         .await
