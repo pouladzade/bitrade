@@ -1,7 +1,9 @@
 use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
+use serde_json::from_str;
 use std::cmp::Ordering;
-
+use database::models::models::*;
+use std::str::FromStr;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// Represents an order in the trading system.
 ///
@@ -45,13 +47,11 @@ pub struct TradeOrder {
 
     pub create_time: i64,
     // Mutable order details
-    pub remain: BigDecimal,
-    pub frozen: BigDecimal,
+    pub remain: BigDecimal,    
     pub filled_base: BigDecimal,
     pub filled_quote: BigDecimal,
     pub filled_fee: BigDecimal,
-    pub update_time: i64,
-    pub partially_filled: bool,
+    pub update_time: i64,    
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -141,5 +141,39 @@ impl Ord for TradeOrder {
             }
             _ => panic!("Cannot compare orders with different sides"),
         }
+    }
+}
+
+impl From<TradeOrder> for NewOrder {
+    fn from(trade_order: TradeOrder) -> Self {
+        let status = determine_order_status(&trade_order);
+        Self {
+            id: trade_order.id,
+            market_id: trade_order.market_id,
+            user_id: trade_order.user_id,
+            order_type: trade_order.order_type.into(),
+            side: trade_order.side.into(),
+            price: trade_order.price,
+            amount: trade_order.amount,
+            maker_fee: trade_order.maker_fee,
+            taker_fee: trade_order.taker_fee,
+            create_time: trade_order.create_time,
+            remain: trade_order.remain,
+            filled_base: trade_order.filled_base,
+            filled_quote: trade_order.filled_quote,
+            filled_fee: trade_order.filled_fee,
+            update_time: trade_order.update_time,
+            status,
+        }
+    }
+}
+
+pub fn determine_order_status(trade_order: &TradeOrder) -> String {
+    if trade_order.remain == BigDecimal::from(0) {
+        "Filled".to_string()
+    } else if trade_order.filled_base > BigDecimal::from(0) {
+        "Partially Filled".to_string()
+    } else {
+        "Open".to_string()
     }
 }

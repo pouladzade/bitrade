@@ -1,12 +1,13 @@
 use crate::models::matched_trade::MatchedTrade;
-use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
+use crate::models::trade_order::{determine_order_status, OrderSide, OrderType, TradeOrder};
 use crate::utils::{self, generate_uuid_id, is_zero};
+use anyhow::Result;
 use bigdecimal::BigDecimal;
+use colored::*;
+use database::models::models::NewOrder;
 use database::persistence::persistence::Persistence;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
-
-use colored::*;
 
 /// Order Book implementation using Binary Heaps (Priority Queues) and a Hash Map.
 ///
@@ -55,9 +56,14 @@ impl<P: Persistence> OrderBook<P> {
         }
     }
 
-    pub fn add_order(&mut self, mut order: TradeOrder) -> Vec<MatchedTrade> {
+    pub fn add_order(
+        &mut self,
+        mut order: TradeOrder,
+    ) -> anyhow::Result<Vec<MatchedTrade>, anyhow::Error> {
         let mut trades = Vec::new();
+
         Self::print_order(&order);
+        self.persist_order(&order)?;
         match order.side {
             OrderSide::Buy => {
                 // Try to match the buy order with existing sell orders (asks)
@@ -77,7 +83,7 @@ impl<P: Persistence> OrderBook<P> {
                     let trade_amount = order.remain.clone().min(ask.remain.clone());
 
                     // Execute the trade
-                    let trade = self.execute_trade(&mut order, &mut ask, trade_amount);
+                    let trade = self.execute_trade(&mut order, &mut ask, trade_amount)?;
                     trades.push(trade);
 
                     // Remove the ask order if fully filled
@@ -113,7 +119,7 @@ impl<P: Persistence> OrderBook<P> {
                     // Calculate the trade amount
                     let trade_amount = order.remain.clone().min(bid.remain.clone());
                     // Execute the trade
-                    let trade = self.execute_trade(&mut order, &mut bid, trade_amount);
+                    let trade = self.execute_trade(&mut order, &mut bid, trade_amount)?;
                     trades.push(trade);
 
                     if !is_zero(&bid.remain) {
@@ -133,36 +139,39 @@ impl<P: Persistence> OrderBook<P> {
             }
         }
         self.print_order_book();
-        trades
+        Ok(trades)
     }
 
     /// Cancel an order by its ID.
-    pub fn cancel_order(&mut self, order_id: String) -> bool {
+    pub fn cancel_order(&mut self, order_id: String) -> anyhow::Result<bool, anyhow::Error> {
         let bids_initial_len = self.bids.len();
         self.bids.retain(|o| o.id != order_id);
         if self.bids.len() != bids_initial_len {
-            return true;
+            return Ok(true);
         }
         let asks_initial_len = self.asks.len();
         self.asks.retain(|o| o.id != order_id);
         if self.asks.len() != asks_initial_len {
-            return true;
+            return Ok(true);
         }
-        return false;
+        return Ok(false);
     }
-    pub fn get_order_by_id(&self, order_id: String) -> Option<TradeOrder> {
+    pub fn get_order_by_id(
+        &self,
+        order_id: String,
+    ) -> anyhow::Result<Option<TradeOrder>, anyhow::Error> {
         if let Some(order) = self.bids.iter().find(|o| o.id == order_id) {
-            return Some(order.clone());
+            return Ok(Some(order.clone()));
         } else if let Some(order) = self.asks.iter().find(|o| o.id == order_id) {
-            return Some(order.clone());
+            return Ok(Some(order.clone()));
         }
-        None
+        Ok(None)
     }
 
-    pub fn cancel_all_orders(&mut self) -> bool {
+    pub fn cancel_all_orders(&mut self) -> anyhow::Result<bool, anyhow::Error> {
         self.bids.clear();
         self.asks.clear();
-        true
+        Ok(true)
     }
 
     fn execute_trade(
@@ -170,9 +179,9 @@ impl<P: Persistence> OrderBook<P> {
         taker: &mut TradeOrder,
         maker: &mut TradeOrder,
         amount: BigDecimal,
-    ) -> MatchedTrade {
+    ) -> anyhow::Result<MatchedTrade, anyhow::Error> {
         let trade_id = generate_uuid_id().to_string();
-        self.market_price = self.calculate_trade_price(taker, maker);
+        self.market_price = self.calculate_trade_price(taker, maker)?;
         let timestamp = utils::get_utc_now_time_millisecond();
 
         // Determine fees based on order type (market or limit)
@@ -213,24 +222,47 @@ impl<P: Persistence> OrderBook<P> {
 
         // Log trade execution
         Self::print_trade(&trade);
-
-        trade
+        self.persist_update_order(&taker)?;
+        self.persist_update_order(&maker)?;
+        Ok(trade)
     }
 
-    fn calculate_trade_price(&self, taker: &TradeOrder, maker: &TradeOrder) -> BigDecimal {
+    fn calculate_trade_price(
+        &self,
+        taker: &TradeOrder,
+        maker: &TradeOrder,
+    ) -> anyhow::Result<BigDecimal, anyhow::Error> {
         match (taker.order_type, maker.order_type) {
             // Market orders trade at the market price
-            (OrderType::Market, OrderType::Market) => self.market_price.clone(),
+            (OrderType::Market, OrderType::Market) => Ok(self.market_price.clone()),
 
             // Market order takes the price of the existing Limit order
-            (OrderType::Market, OrderType::Limit) => maker.price.clone(),
-            (OrderType::Limit, OrderType::Market) => taker.price.clone(),
+            (OrderType::Market, OrderType::Limit) => Ok(maker.price.clone()),
+            (OrderType::Limit, OrderType::Market) => Ok(taker.price.clone()),
 
             // Limit orders always execute at the maker's price
-            (OrderType::Limit, OrderType::Limit) => maker.price.clone(),
+            (OrderType::Limit, OrderType::Limit) => Ok(maker.price.clone()),
         }
     }
 
+    fn persist_order(&self, order: &TradeOrder) -> Result<()> {
+        let new_order: NewOrder = order.clone().into(); // Convert TradeOrder to NewOrder
+
+        self.persister.create_order(new_order)?;
+        Ok(())
+    }
+
+    fn persist_update_order(&self, order: &TradeOrder) -> Result<()> {
+        self.persister.update_order(
+            &order.id,
+            order.remain.clone(),
+            order.filled_base.clone(),
+            order.filled_quote.clone(),
+            order.filled_fee.clone(),
+            determine_order_status(&order).as_str(),
+        )?;
+        Ok(())
+    }
     pub fn print_bids(&self) {
         let bids_sorted: Vec<TradeOrder> = self.bids.clone().into_sorted_vec();
         let bids_reversed: Vec<TradeOrder> = bids_sorted.into_iter().rev().collect();
@@ -320,7 +352,11 @@ impl<P: Persistence> OrderBook<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
+    use crate::{
+        models::trade_order::{OrderSide, OrderType, TradeOrder},
+        tests::test_models::create_persistence_mock,
+    };
+    use anyhow::Context;
     use bigdecimal::BigDecimal;
     use database::mock::mock_thread_safe_persistence::MockThreadSafePersistence;
     use env_logger;
@@ -346,87 +382,92 @@ mod tests {
             taker_fee: BigDecimal::from(0),
             create_time,
             remain: BigDecimal::from_str(amount).unwrap(),
-            frozen: BigDecimal::from(0),
+
             filled_base: BigDecimal::from(0),
             filled_quote: BigDecimal::from(0),
             filled_fee: BigDecimal::from(0),
             update_time: create_time,
-            partially_filled: true,
         }
     }
 
-    // #[test]
-    // fn test_order_book_matching() {
-    //     env_logger::init();
-    //     let persister = MockThreadSafePersistence::new();
-    //     let mut order_book = OrderBook::new(persister as ThreadSafePersistence);
+    #[test]
+    fn test_order_book_matching() {
+        env_logger::init();
+        let persister = MockThreadSafePersistence::new();
+        let mut order_book = OrderBook::new(create_persistence_mock());
 
-    //     // Add a bid (buy order)
-    //     let bid = create_order("1", OrderSide::Buy, "50000", "1", 1, OrderType::Limit);
-    //     let trades = order_book.add_order(bid);
-    //     assert_eq!(trades.len(), 0); // No trades yet
+        // Add a bid (buy order)
+        let bid = create_order("1", OrderSide::Buy, "50000", "1", 1, OrderType::Limit);
+        let trades = order_book
+            .add_order(bid)
+            .context("can't add order")
+            .unwrap();
+        assert_eq!(trades.len(), 0); // No trades yet
 
-    //     // Add an ask (sell order) that matches the bid
-    //     let ask = create_order("2", OrderSide::Sell, "50000", "1", 2, OrderType::Limit);
-    //     let trades = order_book.add_order(ask);
-    //     assert_eq!(trades.len(), 1); // One trade should occur
-    //     println!("{:?}", trades);
-    //     // Verify the trade details
-    //     let trade = &trades[0];
-    //     assert_eq!(trade.price, BigDecimal::from_str("50000").unwrap());
-    //     assert_eq!(trade.amount, BigDecimal::from_str("1").unwrap());
-    //     assert_eq!(trade.taker_order_id, "2");
-    //     assert_eq!(trade.maker_order_id, "1");
+        // Add an ask (sell order) that matches the bid
+        let ask = create_order("2", OrderSide::Sell, "50000", "1", 2, OrderType::Limit);
+        let trades = order_book
+            .add_order(ask)
+            .context("can't add order")
+            .unwrap();
+        assert_eq!(trades.len(), 1); // One trade should occur
+        println!("{:?}", trades);
+        // Verify the trade details
+        let trade = &trades[0];
+        assert_eq!(trade.price, BigDecimal::from_str("50000").unwrap());
+        assert_eq!(trade.amount, BigDecimal::from_str("1").unwrap());
+        assert_eq!(trade.taker_order_id, "2");
+        assert_eq!(trade.maker_order_id, "1");
 
-    //     // Verify the order book is empty after the match
-    //     assert!(order_book.bids.is_empty());
-    //     assert!(order_book.asks.is_empty());
-    // }
+        // Verify the order book is empty after the match
+        assert!(order_book.bids.is_empty());
+        assert!(order_book.asks.is_empty());
+    }
 
-    // #[test]
-    // fn test_partial_match() {
-    //     let mut order_book = OrderBook::new();
+    #[test]
+    fn test_partial_match() {
+        let mut order_book = OrderBook::new(create_persistence_mock());
 
-    //     // Add a bid (buy order)
-    //     let bid = create_order("1", OrderSide::Buy, "50000", "2", 1, OrderType::Limit);
-    //     let trades = order_book.add_order(bid);
-    //     assert_eq!(trades.len(), 0); // No trades yet
+        // Add a bid (buy order)
+        let bid = create_order("1", OrderSide::Buy, "50000", "2", 1, OrderType::Limit);
+        let trades = order_book.add_order(bid).unwrap();
+        assert_eq!(trades.len(), 0); // No trades yet
 
-    //     // Add an ask (sell order) that partially matches the bid
-    //     let ask = create_order("2", OrderSide::Sell, "50000", "1", 2, OrderType::Limit);
-    //     let trades = order_book.add_order(ask);
-    //     assert_eq!(trades.len(), 1); // One trade should occur
-    //     println!("{:?}", trades);
-    //     // Verify the trade details
-    //     let trade = &trades[0];
-    //     assert_eq!(trade.price, BigDecimal::from_str("50000").unwrap());
-    //     assert_eq!(trade.amount, BigDecimal::from_str("1").unwrap());
+        // Add an ask (sell order) that partially matches the bid
+        let ask = create_order("2", OrderSide::Sell, "50000", "1", 2, OrderType::Limit);
+        let trades = order_book.add_order(ask).unwrap();
+        assert_eq!(trades.len(), 1); // One trade should occur
+        println!("{:?}", trades);
+        // Verify the trade details
+        let trade = &trades[0];
+        assert_eq!(trade.price, BigDecimal::from_str("50000").unwrap());
+        assert_eq!(trade.amount, BigDecimal::from_str("1").unwrap());
 
-    //     // Verify the remaining bid in the order book
-    //     // assert_eq!(order_book.asks.len(), 1);
-    //     assert_eq!(order_book.bids.len(), 1);
-    //     let remaining_bid = order_book.bids.peek().unwrap();
-    //     println!("{:?}", remaining_bid);
-    //     assert_eq!(remaining_bid.id, "1");
-    //     assert_eq!(remaining_bid.remain, BigDecimal::from_str("1").unwrap());
+        // Verify the remaining bid in the order book
+        // assert_eq!(order_book.asks.len(), 1);
+        assert_eq!(order_book.bids.len(), 1);
+        let remaining_bid = order_book.bids.peek().unwrap();
+        println!("{:?}", remaining_bid);
+        assert_eq!(remaining_bid.id, "1");
+        assert_eq!(remaining_bid.remain, BigDecimal::from_str("1").unwrap());
 
-    //     // Verify the ask is fully filled and removed
-    //     assert!(order_book.asks.is_empty());
-    // }
+        // Verify the ask is fully filled and removed
+        assert!(order_book.asks.is_empty());
+    }
 
-    // #[test]
-    // fn test_cancel_order() {
-    //     let mut order_book = OrderBook::new();
+    #[test]
+    fn test_cancel_order() {
+        let mut order_book = OrderBook::new(create_persistence_mock());
 
-    //     // Add a bid (buy order)
-    //     let bid = create_order("1", OrderSide::Buy, "50000", "1", 1, OrderType::Limit);
-    //     order_book.add_order(bid);
+        // Add a bid (buy order)
+        let bid = create_order("1", OrderSide::Buy, "50000", "1", 1, OrderType::Limit);
+        order_book.add_order(bid);
 
-    //     // Cancel the bid
-    //     let canceled = order_book.cancel_order("1".to_string());
-    //     assert_eq!(canceled, true);
+        // Cancel the bid
+        let canceled = order_book.cancel_order("1".to_string()).unwrap();
+        assert_eq!(canceled, true);
 
-    //     // Verify the bid is removed from the order book
-    //     assert!(order_book.bids.is_empty());
-    // }
+        // Verify the bid is removed from the order book
+        assert!(order_book.bids.is_empty());
+    }
 }

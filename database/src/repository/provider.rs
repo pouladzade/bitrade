@@ -33,12 +33,10 @@ pub trait DatabaseWriter {
     fn update_order(
         &self,
         order_id: &str,
-        remain: BigDecimal,
-        frozen: BigDecimal,
+        remain: BigDecimal,        
         filled_base: BigDecimal,
         filled_quote: BigDecimal,
-        filled_fee: BigDecimal,
-        partially_filled: bool,
+        filled_fee: BigDecimal,        
         status: &str,
     ) -> Result<Order>;
 

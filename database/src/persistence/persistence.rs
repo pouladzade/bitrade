@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use crate::models::models::*;
 use anyhow::Result;
+use bigdecimal::BigDecimal;
 
 pub trait Persistence: Send + Sync + Clone + Debug {
     fn get_market(&self, market_id: &str) -> Result<Option<Market>>;
@@ -12,4 +13,55 @@ pub trait Persistence: Send + Sync + Clone + Debug {
     fn get_user_orders(&self, user_id: &str, limit: i64) -> Result<Vec<Order>>;
 
     fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Balance>>;
+    // Trade operations
+    fn get_trades_for_market(&self, market_id: &str, limit: i64) -> Result<Vec<Trade>>;
+    fn get_trades_for_order(&self, order_id: &str) -> Result<Vec<Trade>>;
+    fn get_user_trades(&self, user_id: &str, limit: i64) -> Result<Vec<Trade>>;
+
+    // Market stats operations
+    fn get_market_stats(&self, market_id: &str) -> Result<Option<MarketStat>>;
+
+    // Market operations
+    fn create_market(&self, market_data: NewMarket) -> Result<Market>;
+
+    // Order operations
+    fn create_order(&self, order_data: NewOrder) -> Result<Order>;
+    fn update_order(
+        &self,
+        order_id: &str,
+        remain: BigDecimal,
+        filled_base: BigDecimal,
+        filled_quote: BigDecimal,
+        filled_fee: BigDecimal,
+        status: &str,
+    ) -> Result<Order>;
+
+    // Trade operations
+    fn create_trade(&self, trade_data: NewTrade) -> Result<Trade>;
+    fn create_trades(&self, trades_data: Vec<NewTrade>) -> Result<Vec<Trade>>;
+
+    // Balance operations
+    fn update_or_create_balance(
+        &self,
+        user_id: &str,
+        asset: &str,
+        available_delta: BigDecimal,
+        frozen_delta: BigDecimal,
+    ) -> Result<Balance>;
+
+    // Market stats operations
+    fn update_market_stats(
+        &self,
+        market_id: &str,
+        high_24h: BigDecimal,
+        low_24h: BigDecimal,
+        volume_24h: BigDecimal,
+        price_change_24h: BigDecimal,
+        last_price: BigDecimal,
+    ) -> Result<MarketStat>;
+
+    // Transaction support
+    fn with_transaction<F, T>(&self, operation: F) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>;
 }

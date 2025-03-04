@@ -1,9 +1,10 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use bigdecimal::BigDecimal;
 use chrono::Utc;
+use database::mock::mock_thread_safe_persistence::MockThreadSafePersistence;
 
-use crate::models::trade_order::{TradeOrder, OrderSide, OrderType};
+use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
 
 pub fn create_order(
     side: OrderSide,
@@ -31,11 +32,15 @@ pub fn create_order(
         taker_fee: BigDecimal::from(0),
         create_time: Utc::now().timestamp_millis(),
         remain: BigDecimal::from_str(amount).unwrap(),
-        frozen: BigDecimal::from(0),
+        
         filled_base: BigDecimal::from(0),
         filled_quote: BigDecimal::from(0),
         filled_fee: BigDecimal::from(0),
         update_time: Utc::now().timestamp_millis(),
-        partially_filled: true,
+        
     }
+}
+
+pub fn create_persistence_mock() -> Arc<MockThreadSafePersistence> {
+    Arc::new(MockThreadSafePersistence::new())
 }

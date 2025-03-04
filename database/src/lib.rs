@@ -1,6 +1,6 @@
 
 pub mod mock;
-mod models;
+pub mod models;
 pub mod persistence;
 mod repository;
 

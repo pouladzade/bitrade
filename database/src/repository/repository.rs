@@ -1,10 +1,10 @@
 // repository.rs
 // Implementation of repository pattern for database operations
 
-use crate::{DbConnection, DbPool};
 use super::provider::{DatabaseReader, DatabaseWriter};
-use crate::models::schema::*;
 use crate::models::models::*;
+use crate::models::schema::*;
+use crate::{DbConnection, DbPool};
 use anyhow::Result;
 use bigdecimal::BigDecimal;
 use diesel::prelude::*;
@@ -53,7 +53,7 @@ impl Repository {
     // Order operations
     pub fn create_order(&self, order_data: NewOrder) -> Result<Order> {
         let conn = &mut self.get_conn()?;
-
+        println!("{:?}", order_data);
         let result = diesel::insert_into(orders::table)
             .values(&order_data)
             .get_result(conn)?;
@@ -73,23 +73,22 @@ impl Repository {
         &self,
         order_id: &str,
         remain: BigDecimal,
-        frozen: BigDecimal,
         filled_base: BigDecimal,
         filled_quote: BigDecimal,
         filled_fee: BigDecimal,
-        partially_filled: bool,
+
         status: &str,
     ) -> Result<Order> {
         let conn = &mut self.get_conn()?;
 
-        let current_time = chrono::Utc::now().timestamp();
+        let current_time = chrono::Utc::now().timestamp_millis();
 
         let result = diesel::update(orders::table.find(order_id))
             .set((
-                orders::remain.eq(remain),                
+                orders::remain.eq(remain),
                 orders::filled_base.eq(filled_base),
                 orders::filled_quote.eq(filled_quote),
-                orders::filled_fee.eq(filled_fee),                
+                orders::filled_fee.eq(filled_fee),
                 orders::status.eq(status),
                 orders::update_time.eq(current_time),
             ))
@@ -206,7 +205,7 @@ impl Repository {
     ) -> Result<Balance> {
         let conn = &mut self.get_conn()?;
 
-        let current_time = chrono::Utc::now().timestamp();
+        let current_time = chrono::Utc::now().timestamp_millis();
 
         // Check if balance exists
         let balance_option = balances::table
@@ -263,7 +262,7 @@ impl Repository {
     ) -> Result<MarketStat> {
         let conn = &mut self.get_conn()?;
 
-        let current_time = chrono::Utc::now().timestamp();
+        let current_time = chrono::Utc::now().timestamp_millis();
 
         // Check if stats exist
         let stats_option = market_stats::table
@@ -362,6 +361,7 @@ impl DatabaseWriter for Repository {
     }
 
     fn create_order(&self, order_data: NewOrder) -> Result<Order> {
+        println!("{:?}", order_data);
         self.create_order(order_data)
     }
 
@@ -369,21 +369,17 @@ impl DatabaseWriter for Repository {
         &self,
         order_id: &str,
         remain: BigDecimal,
-        frozen: BigDecimal,
         filled_base: BigDecimal,
         filled_quote: BigDecimal,
         filled_fee: BigDecimal,
-        partially_filled: bool,
         status: &str,
     ) -> Result<Order> {
         self.update_order(
             order_id,
             remain,
-            frozen,
             filled_base,
             filled_quote,
             filled_fee,
-            partially_filled,
             status,
         )
     }

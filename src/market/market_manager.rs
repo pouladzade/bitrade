@@ -76,7 +76,10 @@ impl<P: Persistence> MarketManager<P> {
             .get(&order.market_id)
             .context(format!("Market {} not found", order.market_id))?;
 
-        market.add_order(order) // `Market::add_order` already uses tasks, so it's safe
+       let res = market.add_order(order)?; // `Market::add_order` already uses tasks, so it's safe
+       let trades = res.0?;
+       Ok((trades,res.1))
+
     }
 
     pub fn cancel_order(&self, market_id: &str, order_id: String) -> Result<bool> {
@@ -88,7 +91,7 @@ impl<P: Persistence> MarketManager<P> {
         let market = markets
             .get(market_id)
             .context(format!("Market {} not found", market_id))?;
-        market.cancel_order(order_id)
+        market.cancel_order(order_id)?
     }
 
     pub fn get_order_by_id(&self, market_id: &str, order_id: String) -> Result<Option<TradeOrder>> {
@@ -100,7 +103,7 @@ impl<P: Persistence> MarketManager<P> {
         let market = markets
             .get(market_id)
             .context(format!("Market {} not found", market_id))?;
-        market.get_order_by_id(order_id)
+        market.get_order_by_id(order_id)?
     }
 
     pub fn cancel_all_orders(&self, market_id: &str) -> Result<bool> {
@@ -112,7 +115,7 @@ impl<P: Persistence> MarketManager<P> {
         let market = markets
             .get(market_id)
             .context(format!("Market {} not found", market_id))?;
-        market.cancel_all_orders()
+        market.cancel_all_orders()?
     }
 
     pub fn cancel_all_orders_global(&self) -> Result<()> {

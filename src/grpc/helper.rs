@@ -1,7 +1,7 @@
 use crate::grpc::spot::{AddOrderRequest, ProtoTrade};
 use crate::models::{
-    trade_order::{TradeOrder, OrderSide, OrderType},
     matched_trade::MatchedTrade,
+    trade_order::{OrderSide, OrderType, TradeOrder},
 };
 use crate::utils;
 use anyhow::{anyhow, Context, Result};
@@ -63,12 +63,11 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
             taker_fee,
             create_time: utils::get_utc_now_time_millisecond(),
             remain: amount,
-            frozen: BigDecimal::zero(),
+
             filled_base: BigDecimal::zero(),
             filled_quote: BigDecimal::zero(),
             filled_fee: BigDecimal::zero(),
             update_time: utils::get_utc_now_time_millisecond(),
-            partially_filled: false,
         })
     }
 }
