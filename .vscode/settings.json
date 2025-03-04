@@ -10,6 +10,7 @@
     "prost",
     "protos",
     "serde",
-    "structopt"
+    "structopt",
+    "thiserror"
   ]
 }

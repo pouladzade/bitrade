@@ -1,4 +1,5 @@
 use bigdecimal::BigDecimal;
+use database::models::models::NewTrade;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -42,6 +43,25 @@ impl From<MarketRole> for String {
         match role {
             MarketRole::Maker => "MAKER".to_string(),
             MarketRole::Taker => "TAKER".to_string(),
+        }
+    }
+}
+
+impl From<MatchedTrade> for NewTrade {
+    fn from(trade: MatchedTrade) -> Self {
+        Self {
+            id: trade.id,
+            timestamp: trade.timestamp,
+            market_id: trade.market_id,
+            price: trade.price,
+            amount: trade.amount,
+            quote_amount: trade.quote_amount,
+            taker_user_id: trade.taker_user_id,
+            taker_order_id: trade.taker_order_id,
+            taker_fee: trade.taker_fee,
+            maker_user_id: trade.maker_user_id,
+            maker_order_id: trade.maker_order_id,
+            maker_fee: trade.maker_fee,
         }
     }
 }

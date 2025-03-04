@@ -1,10 +1,10 @@
 use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::{determine_order_status, OrderSide, OrderType, TradeOrder};
 use crate::utils::{self, generate_uuid_id, is_zero};
-use anyhow::Result;
+use anyhow::{Ok, Result};
 use bigdecimal::BigDecimal;
 use colored::*;
-use database::models::models::NewOrder;
+use database::models::models::{NewOrder, NewTrade};
 use database::persistence::persistence::Persistence;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
@@ -56,10 +56,7 @@ impl<P: Persistence> OrderBook<P> {
         }
     }
 
-    pub fn add_order(
-        &mut self,
-        mut order: TradeOrder,
-    ) -> anyhow::Result<Vec<MatchedTrade>, anyhow::Error> {
+    pub fn add_order(&mut self, mut order: TradeOrder) -> anyhow::Result<Vec<MatchedTrade>> {
         let mut trades = Vec::new();
 
         Self::print_order(&order);
@@ -143,7 +140,7 @@ impl<P: Persistence> OrderBook<P> {
     }
 
     /// Cancel an order by its ID.
-    pub fn cancel_order(&mut self, order_id: String) -> anyhow::Result<bool, anyhow::Error> {
+    pub fn cancel_order(&mut self, order_id: String) -> anyhow::Result<bool> {
         let bids_initial_len = self.bids.len();
         self.bids.retain(|o| o.id != order_id);
         if self.bids.len() != bids_initial_len {
@@ -156,19 +153,16 @@ impl<P: Persistence> OrderBook<P> {
         }
         return Ok(false);
     }
-    pub fn get_order_by_id(
-        &self,
-        order_id: String,
-    ) -> anyhow::Result<Option<TradeOrder>, anyhow::Error> {
+    pub fn get_order_by_id(&self, order_id: String) -> anyhow::Result<TradeOrder> {
         if let Some(order) = self.bids.iter().find(|o| o.id == order_id) {
-            return Ok(Some(order.clone()));
+            return Ok(order.clone());
         } else if let Some(order) = self.asks.iter().find(|o| o.id == order_id) {
-            return Ok(Some(order.clone()));
+            return Ok(order.clone());
         }
-        Ok(None)
+        Err(anyhow::anyhow!("can not find the order!"))
     }
 
-    pub fn cancel_all_orders(&mut self) -> anyhow::Result<bool, anyhow::Error> {
+    pub fn cancel_all_orders(&mut self) -> anyhow::Result<bool> {
         self.bids.clear();
         self.asks.clear();
         Ok(true)
@@ -179,7 +173,7 @@ impl<P: Persistence> OrderBook<P> {
         taker: &mut TradeOrder,
         maker: &mut TradeOrder,
         amount: BigDecimal,
-    ) -> anyhow::Result<MatchedTrade, anyhow::Error> {
+    ) -> anyhow::Result<MatchedTrade> {
         let trade_id = generate_uuid_id().to_string();
         self.market_price = self.calculate_trade_price(taker, maker)?;
         let timestamp = utils::get_utc_now_time_millisecond();
@@ -197,11 +191,18 @@ impl<P: Persistence> OrderBook<P> {
             taker.maker_fee.clone()
         } * amount.clone();
 
+        let quote_amount = amount.clone() * self.market_price.clone();
+
         // Update remaining amounts after deducting fees
         taker.remain -= amount.clone() - taker_fee.clone();
-        maker.remain -= amount.clone() - maker_fee.clone();
+        taker.filled_base += amount.clone();
+        taker.filled_quote += quote_amount.clone();
+        taker.filled_fee += taker_fee.clone();
 
-        let quote_amount = amount.clone() * self.market_price.clone();
+        maker.remain -= amount.clone() - maker_fee.clone();
+        maker.filled_base += amount.clone();
+        maker.filled_quote += quote_amount.clone();
+        maker.filled_fee += maker_fee.clone();
 
         // Construct the trade object
         let trade = MatchedTrade {
@@ -209,7 +210,7 @@ impl<P: Persistence> OrderBook<P> {
             timestamp,
             market_id: taker.market_id.clone(),
             price: self.market_price.clone(),
-            amount: amount,
+            amount,
             quote_amount,
             maker_user_id: maker.user_id.clone(),
             maker_order_id: maker.id.clone(),
@@ -224,6 +225,7 @@ impl<P: Persistence> OrderBook<P> {
         Self::print_trade(&trade);
         self.persist_update_order(&taker)?;
         self.persist_update_order(&maker)?;
+        self.persist_trade(&trade)?;
         Ok(trade)
     }
 
@@ -231,7 +233,7 @@ impl<P: Persistence> OrderBook<P> {
         &self,
         taker: &TradeOrder,
         maker: &TradeOrder,
-    ) -> anyhow::Result<BigDecimal, anyhow::Error> {
+    ) -> anyhow::Result<BigDecimal> {
         match (taker.order_type, maker.order_type) {
             // Market orders trade at the market price
             (OrderType::Market, OrderType::Market) => Ok(self.market_price.clone()),
@@ -245,14 +247,20 @@ impl<P: Persistence> OrderBook<P> {
         }
     }
 
-    fn persist_order(&self, order: &TradeOrder) -> Result<()> {
+    fn persist_order(&self, order: &TradeOrder) -> anyhow::Result<()> {
         let new_order: NewOrder = order.clone().into(); // Convert TradeOrder to NewOrder
 
         self.persister.create_order(new_order)?;
         Ok(())
     }
 
-    fn persist_update_order(&self, order: &TradeOrder) -> Result<()> {
+    fn persist_trade(&self, trade: &MatchedTrade) -> Result<()> {
+        let new_trade: NewTrade = trade.clone().into();
+        self.persister.create_trade(new_trade)?;
+        Ok(())
+    }
+
+    fn persist_update_order(&self, order: &TradeOrder) -> anyhow::Result<()> {
         self.persister.update_order(
             &order.id,
             order.remain.clone(),

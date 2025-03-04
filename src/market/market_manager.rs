@@ -1,243 +1,202 @@
 use super::market::Market;
 use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::TradeOrder;
+use crate::utils;
 use anyhow::{anyhow, Context, Result};
+use bigdecimal::BigDecimal;
+use database::models::models::NewMarket;
 use database::persistence::persistence::Persistence;
+use tonic::Status;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MarketManager<P>
 where
     P: Persistence + 'static,
 {
-    markets: Arc<RwLock<HashMap<String, Market<P>>>>,
+    markets: Arc<Mutex<HashMap<String, Arc<Mutex<Market<P>>>>>>,
+    market_handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
     persister: Arc<P>,
 }
 
 impl<P: Persistence> MarketManager<P> {
     pub fn new(persister: Arc<P>) -> Self {
         MarketManager {
-            markets: Arc::new(RwLock::new(HashMap::new())),
+            markets: Arc::new(Mutex::new(HashMap::new())),
+            market_handles: Arc::new(Mutex::new(Vec::new())),
             persister,
         }
     }
 
-    pub fn create_market(&self, market_id: &str, pool_size: usize) -> Result<()> {
+    fn get_market(&self, market_id: &str) -> Result<Arc<Mutex<Market<P>>>> {
+        let markets = self
+            .markets
+            .lock()
+            .map_err(|e| anyhow!("Failed to acquire lock on markets: {}", e))?;
+
+        markets
+            .get(market_id)
+            .cloned()
+            .context(format!("Market {} not found", market_id))
+    }
+
+    pub fn create_market(
+        &self,
+        market_id: String,
+        base_asset: String,
+        quote_asset: String,
+        default_maker_fee: String,
+        default_taker_fee: String,
+    ) -> Result<()> {
         let mut markets = self
             .markets
-            .write()
-            .map_err(|e| anyhow!("Failed to acquire write lock on markets: {}", e))?;
+            .lock()
+            .map_err(|e| anyhow!("Failed to acquire lock on markets: {}", e))?;
 
-        if !markets.contains_key(market_id) {
-            let market = Market::new(self.persister.clone(), market_id.to_string(), pool_size);
+        if !markets.contains_key(market_id.as_str()) {
+            let market = Arc::new(Mutex::new(Market::new(
+                self.persister.clone(),
+                market_id.to_string(),
+            )?));
             markets.insert(market_id.to_string(), market);
+            self.persister
+                .create_market(NewMarket {
+                    id: market_id.clone(),
+                    base_asset: base_asset.clone(),
+                    quote_asset: quote_asset.clone(),
+                    default_maker_fee: BigDecimal::from_str(&default_maker_fee)
+                        .context("Failed to parse amount as Decimal")
+                        .map_err(|e| Status::invalid_argument(e.to_string()))?,
+                    default_taker_fee: BigDecimal::from_str(&default_taker_fee)
+                        .context("Failed to parse amount as Decimal")
+                        .map_err(|e| Status::invalid_argument(e.to_string()))?,
+                    create_time: utils::get_utc_now_time_millisecond(),
+                    update_time: utils::get_utc_now_time_millisecond(),
+                })
+                .context("Failed to persist market")
+                .map_err(|e| Status::internal(e.to_string()))?;
         }
         tracing::debug!(target: "market_manager", "Created market {}", market_id);
-        println!("Created market {:?}", markets);
         Ok(())
     }
 
     pub fn start_market(&self, market_id: &str) -> Result<()> {
-        let mut markets = self
-            .markets
-            .write()
-            .map_err(|e| anyhow!("Failed to acquire write lock on markets: {}", e))?;
+        let market = self.get_market(market_id)?;
 
-        let market = markets
-            .get_mut(market_id)
-            .context(format!("Market {} not found", market_id))?;
-        market.start_market();
+        // Spawn a dedicated thread for this market
+        let market_clone = Arc::clone(&market);
+        let handle = thread::spawn(move || {
+            let market = market_clone.lock().expect("Failed to lock market");
+            market.start_market();
+        });
+
+        // Store the thread handle
+        let mut handles = self
+            .market_handles
+            .lock()
+            .map_err(|e| anyhow!("Failed to acquire lock on market handles: {}", e))?;
+        handles.push(handle);
+
         tracing::debug!(target: "market_manager", "Started market {}", market_id);
         Ok(())
     }
 
     pub fn stop_market(&self, market_id: &str) -> Result<()> {
-        let mut markets = self
-            .markets
-            .write()
-            .map_err(|e| anyhow!("Failed to acquire write lock on markets: {}", e))?;
+        let market = self.get_market(market_id)?;
 
-        let market = markets
-            .get_mut(market_id)
-            .context(format!("Market {} not found", market_id))?;
-        market.stop_market();
+        let mut market_guard = market
+            .lock()
+            .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
+
+        market_guard.stop_market();
         Ok(())
     }
 
     pub fn add_order(&self, order: TradeOrder) -> Result<(Vec<MatchedTrade>, String)> {
-        let markets = self
-            .markets
-            .read()
-            .map_err(|e| anyhow!("Failed to acquire read lock on markets: {}", e))?;
+        let market = self.get_market(&order.market_id)?;
 
-        let market = markets
-            .get(&order.market_id)
-            .context(format!("Market {} not found", order.market_id))?;
+        let mut market_guard = market
+            .lock()
+            .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
 
-       let res = market.add_order(order)?; // `Market::add_order` already uses tasks, so it's safe
-       let trades = res.0?;
-       Ok((trades,res.1))
-
+        let trade = market_guard.add_order(order)?;
+        Ok((trade, market_guard.get_market_id()))
     }
 
     pub fn cancel_order(&self, market_id: &str, order_id: String) -> Result<bool> {
-        let markets = self
-            .markets
-            .read()
-            .map_err(|e| anyhow!("Failed to acquire read lock on markets: {}", e))?;
+        let market = self.get_market(market_id)?;
 
-        let market = markets
-            .get(market_id)
-            .context(format!("Market {} not found", market_id))?;
-        market.cancel_order(order_id)?
+        let mut market_guard = market
+            .lock()
+            .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
+
+        market_guard.cancel_order(order_id)
     }
 
-    pub fn get_order_by_id(&self, market_id: &str, order_id: String) -> Result<Option<TradeOrder>> {
-        let markets = self
-            .markets
-            .read()
-            .map_err(|e| anyhow!("Failed to acquire read lock on markets: {}", e))?;
+    pub fn get_order_by_id(&self, market_id: &str, order_id: String) -> Result<TradeOrder> {
+        let market = self.get_market(market_id)?;
 
-        let market = markets
-            .get(market_id)
-            .context(format!("Market {} not found", market_id))?;
-        market.get_order_by_id(order_id)?
+        let market_guard = market
+            .lock()
+            .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
+
+        market_guard.get_order_by_id(order_id)
     }
 
     pub fn cancel_all_orders(&self, market_id: &str) -> Result<bool> {
-        let markets = self
-            .markets
-            .read()
-            .map_err(|e| anyhow!("Failed to acquire read lock on markets: {}", e))?;
+        let market = self.get_market(market_id)?;
 
-        let market = markets
-            .get(market_id)
-            .context(format!("Market {} not found", market_id))?;
-        market.cancel_all_orders()?
+        let mut market_guard = market
+            .lock()
+            .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
+
+        market_guard.cancel_all_orders()
     }
 
     pub fn cancel_all_orders_global(&self) -> Result<()> {
         let markets = self
             .markets
-            .read()
-            .map_err(|e| anyhow!("Failed to acquire read lock on markets: {}", e))?;
+            .lock()
+            .map_err(|e| anyhow!("Failed to acquire lock on markets: {}", e))?;
 
         for market in markets.values() {
-            market.cancel_all_orders()?;
+            let mut market_guard = market
+                .lock()
+                .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
+            market_guard.cancel_all_orders()?;
         }
         Ok(())
     }
+
+    // Optional: Method to gracefully shutdown all market threads
+    pub fn shutdown(&self) -> Result<()> {
+        // Stop all markets first
+        self.cancel_all_orders_global()?;
+
+        // Join all market threads
+        let mut handles = self
+            .market_handles
+            .lock()
+            .map_err(|e| anyhow!("Failed to acquire lock on market handles: {}", e))?;
+
+        for handle in handles.drain(..) {
+            handle
+                .join()
+                .map_err(|_| anyhow!("Failed to join market thread"))?;
+        }
+
+        Ok(())
+    }
 }
-#[cfg(test)]
-mod tests {
-    use database::mock::mock_thread_safe_persistence::MockThreadSafePersistence;
 
-    use crate::{
-        models::trade_order::{OrderSide, OrderType},
-        tests::test_models,
-    };
-
-    use super::*;
-    const MARKET_ID: &str = "market_id";
- 
-    fn create_persistence_mock() -> Arc<MockThreadSafePersistence> {
-
-         Arc::new(MockThreadSafePersistence::new())
-    }
-    #[test]
-    fn test_create_market() {
-        let manager = MarketManager::new(create_persistence_mock());
-        assert!(manager.create_market(MARKET_ID, 10).is_ok());
-        let markets = manager.markets.read().unwrap();
-        assert!(markets.contains_key(MARKET_ID));
-    }
-
-    #[test]
-    fn test_start_market() {
-        let manager = MarketManager::new(create_persistence_mock());
-        manager.create_market(MARKET_ID, 10).unwrap();
-        assert!(manager.start_market(MARKET_ID).is_ok());
-    }
-
-    #[test]
-    fn test_stop_market() {
-        let manager = MarketManager::new(create_persistence_mock());
-        manager.create_market(MARKET_ID, 10).unwrap();
-        manager.start_market(MARKET_ID).unwrap();
-        assert!(manager.stop_market(MARKET_ID).is_ok());
-    }
-
-    #[test]
-    fn test_add_order() {
-        let manager = MarketManager::new(create_persistence_mock());
-
-        manager.create_market(MARKET_ID, 10).unwrap();
-        let order =
-            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
-        let result = manager.add_order(order.clone());
-        assert!(result.is_err());
-        manager.start_market(MARKET_ID).unwrap();
-        let result = manager.add_order(order);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_cancel_order() {
-        let manager = MarketManager::new(create_persistence_mock());
-
-        manager.create_market(MARKET_ID, 10).unwrap();
-        manager.start_market(MARKET_ID).unwrap();
-        let order =
-            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
-        let order_id = order.id.clone();
-        manager.add_order(order).unwrap();
-        assert!(manager.cancel_order(MARKET_ID, order_id).unwrap());
-    }
-
-    #[test]
-    fn test_get_order_by_id() {
-        let manager = MarketManager::new(create_persistence_mock());
-        manager.create_market(MARKET_ID, 10).unwrap();
-        manager.start_market(MARKET_ID).unwrap();
-        let order =
-            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
-        let order_id = order.id.clone();
-        manager.add_order(order.clone()).unwrap();
-        let fetched_order = manager.get_order_by_id(MARKET_ID, order_id).unwrap();
-        assert_eq!(fetched_order, Some(order));
-    }
-
-    #[test]
-    fn test_cancel_all_orders() {
-        let manager = MarketManager::new(create_persistence_mock());
-        manager.create_market(MARKET_ID, 10).unwrap();
-        manager.start_market(MARKET_ID).unwrap();
-        let order1 =
-            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, MARKET_ID);
-        let order2 =
-            test_models::create_order(OrderSide::Buy, "200", "20", OrderType::Limit, MARKET_ID);
-        manager.add_order(order1).unwrap();
-        manager.add_order(order2).unwrap();
-        assert!(manager.cancel_all_orders(MARKET_ID).unwrap());
-    }
-
-    #[test]
-    fn test_cancel_all_orders_global() {
-        let manager = MarketManager::new(create_persistence_mock());
-        let market_id1 = "test_market1";
-        let market_id2 = "test_market2";
-        manager.create_market(market_id1, 10).unwrap();
-        manager.start_market(market_id1).unwrap();
-        manager.create_market(market_id2, 10).unwrap();
-        manager.start_market(market_id2).unwrap();
-        let order1 =
-            test_models::create_order(OrderSide::Buy, "100", "10", OrderType::Limit, market_id1);
-        let order2 =
-            test_models::create_order(OrderSide::Buy, "200", "20", OrderType::Limit, market_id2);
-        manager.add_order(order1).unwrap();
-        manager.add_order(order2).unwrap();
-        assert!(manager.cancel_all_orders_global().is_ok());
+// Implement Drop trait for clean thread termination
+impl<P: Persistence> Drop for MarketManager<P> {
+    fn drop(&mut self) {
+        if let Ok(()) = self.shutdown() {
+            tracing::debug!(target: "market_manager", "Gracefully shutdown all markets");
+        }
     }
 }

@@ -9,6 +9,7 @@ use crate::grpc::spot::{
 use crate::market::market_manager::MarketManager;
 use crate::models::trade_order::TradeOrder;
 use anyhow::{Context, Result};
+use database::models::schema::markets::base_asset;
 use database::persistence::thread_safe_persistence::ThreadSafePersistence;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -26,10 +27,15 @@ impl SpotService for SpotServiceImpl {
     ) -> Result<Response<CreateMarketResponse>, Status> {
         let req = request.into_inner();
         let market_id = req.market_id.clone();
-        let pool_size = req.pool_size as usize;
         let market_manager = self.market_manager.write().await;
         market_manager
-            .create_market(&market_id, pool_size)
+            .create_market(
+                market_id.clone(),
+                req.base_asset,
+                req.quote_asset,
+                req.default_maker_fee,
+                req.default_taker_fee,
+            )
             .context("Failed to create market")
             .map_err(|e| Status::internal(e.to_string()))?;
 

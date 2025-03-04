@@ -53,7 +53,7 @@ impl Repository {
     // Order operations
     pub fn create_order(&self, order_data: NewOrder) -> Result<Order> {
         let conn = &mut self.get_conn()?;
-        println!("{:?}", order_data);
+
         let result = diesel::insert_into(orders::table)
             .values(&order_data)
             .get_result(conn)?;
@@ -361,7 +361,6 @@ impl DatabaseWriter for Repository {
     }
 
     fn create_order(&self, order_data: NewOrder) -> Result<Order> {
-        println!("{:?}", order_data);
         self.create_order(order_data)
     }
 
