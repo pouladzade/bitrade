@@ -19,6 +19,9 @@ pub enum MarketError {
 
     #[error("Failed to receive response from order book")]
     ResponseReceiveError,
+
+    #[error("Market is already started")]
+    MarketAlreadyStarted,
 }
 
 type Task<P> = Box<dyn FnOnce(&mut OrderBook<P>) + Send + 'static>;
@@ -31,11 +34,18 @@ where
     task_sender: channel::Sender<Task<P>>,
     persister: Arc<P>,
     market_id: String,
+    base_asset: String,
+    quote_asset: String,
     started: Arc<Mutex<bool>>, // Track market status
 }
 
 impl<P: Persistence> Market<P> {
-    pub fn new(persister: Arc<P>, market_id: String) -> Result<Self> {
+    pub fn new(
+        persister: Arc<P>,
+        market_id: String,
+        base_asset: String,
+        quote_asset: String,
+    ) -> Result<Self> {
         let (task_sender, task_receiver): (channel::Sender<Task<P>>, channel::Receiver<Task<P>>) =
             channel::unbounded();
 
@@ -43,9 +53,16 @@ impl<P: Persistence> Market<P> {
 
         let persister_clone = Arc::clone(&persister);
         let started_clone = Arc::clone(&started);
-
+        let base_asset_clone = base_asset.clone();
+        let market_id_clone = market_id.clone();
+        let quote_asset_clone = quote_asset.clone();
         thread::spawn(move || {
-            let mut order_book = OrderBook::new(persister_clone);
+            let mut order_book = OrderBook::new(
+                persister_clone,
+                base_asset_clone,
+                market_id_clone,
+                quote_asset_clone,
+            );
             while let Ok(task) = task_receiver.recv() {
                 match started_clone.lock() {
                     Ok(started) if *started => task(&mut order_book),
@@ -60,6 +77,8 @@ impl<P: Persistence> Market<P> {
             persister,
             market_id,
             started,
+            base_asset,
+            quote_asset,
         })
     }
 
@@ -72,6 +91,10 @@ impl<P: Persistence> Market<P> {
             .started
             .lock()
             .map_err(|_| anyhow::anyhow!("Failed to acquire lock to start market"))?;
+        if *started {
+            return Err(MarketError::MarketAlreadyStarted.into());
+        }
+
         *started = true;
         println!("Market {} started", self.market_id);
         Ok(())
@@ -82,6 +105,9 @@ impl<P: Persistence> Market<P> {
             .started
             .lock()
             .map_err(|_| anyhow::anyhow!("Failed to acquire lock to stop market"))?;
+        if !*started {
+            return Err(MarketError::MarketNotStarted.into());
+        }
         *started = false;
         println!("Market {} stopped", self.market_id);
         Ok(())
@@ -115,7 +141,7 @@ impl<P: Persistence> Market<P> {
     pub fn get_order_by_id(&self, order_id: String) -> Result<TradeOrder> {
         let (sender, receiver) = std::sync::mpsc::channel();
 
-        self.submit_task(Box::new(move |order_book: &mut OrderBook<P>| {
+        let _ = self.submit_task(Box::new(move |order_book: &mut OrderBook<P>| {
             let result = order_book.get_order_by_id(order_id);
             let _ = sender.send(result);
         }));

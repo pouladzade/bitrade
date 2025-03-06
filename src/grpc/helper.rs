@@ -43,13 +43,9 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
             .context("Failed to parse amount as Decimal")
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-        let maker_fee = BigDecimal::from_str("0")
-            .context("Failed to parse maker_fee as Decimal")
-            .map_err(|e| Status::internal(e.to_string()))?;
+        let maker_fee = BigDecimal::zero();
 
-        let taker_fee = BigDecimal::from_str("0")
-            .context("Failed to parse taker_fee as Decimal")
-            .map_err(|e| Status::internal(e.to_string()))?;
+        let taker_fee = BigDecimal::zero();
 
         Ok(TradeOrder {
             id: utils::generate_uuid_id(),

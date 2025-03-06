@@ -11,8 +11,42 @@ service SpotService {
     rpc CreateMarket (CreateMarketRequest) returns (CreateMarketResponse);    
     rpc StopMarket (StopMarketRequest) returns (StopMarketResponse);
     rpc StartMarket (StartMarketRequest) returns (StartMarketResponse);
+    rpc Deposit (DepositRequest) returns (DepositResponse);    
+    rpc GetBalance (GetBalanceRequest) returns (GetBalanceResponse);
+    rpc Withdraw (WithdrawRequest) returns (WithdrawResponse);
 }
-
+message WithdrawRequest {
+    string user_id = 1;
+    string asset = 2;
+    string amount = 3;
+}
+message WithdrawResponse {
+    bool success = 1;
+    string user_id = 2;
+    string asset = 3;
+    string amount = 4;
+}  
+ 
+message  DepositRequest {
+    string user_id = 1;
+    string asset = 2;
+    string amount = 3;
+}
+message DepositResponse {
+    bool success = 1;
+    string user_id = 2;
+    string asset = 3;
+    string amount = 4;
+}
+message GetBalanceRequest {
+    string user_id = 1;
+    string asset = 2;
+}
+message GetBalanceResponse {
+    string user_id = 1;
+    string asset = 2;
+    string amount = 3;
+}
 message ProtoTrade {
     string id = 1;
     int64 timestamp = 2; // Unix timestamp

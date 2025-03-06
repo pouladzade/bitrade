@@ -93,7 +93,7 @@ pub enum OrderStatus {
 impl OrderStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            OrderStatus::Open => "OPEN",
+            OrderStatus::Open => "Open",
             OrderStatus::Filled => "FILLED",
             OrderStatus::Canceled => "CANCELED",
             OrderStatus::Rejected => "REJECTED",
@@ -107,6 +107,7 @@ impl OrderStatus {
             "FILLED" => Ok(OrderStatus::Filled),
             "CANCELED" => Ok(OrderStatus::Canceled),
             "REJECTED" => Ok(OrderStatus::Rejected),
+            "PARTIALLY_FILLED" => Ok(OrderStatus::PartiallyFilled),
             _ => Err(format!("Unknown order status: {}", s)),
         }
     }
@@ -153,7 +154,7 @@ pub struct Order {
     pub maker_fee: BigDecimal,
     pub taker_fee: BigDecimal,
     pub create_time: i64,
-    pub remain: BigDecimal,    
+    pub remain: BigDecimal,
     pub filled_base: BigDecimal,
     pub filled_quote: BigDecimal,
     pub filled_fee: BigDecimal,

@@ -12,5 +12,7 @@
     "serde",
     "structopt",
     "thiserror"
-  ]
+  ],
+  "bitoAI.codeCompletion.enableAutoCompletion": false,
+  "zencoder.enableRepoIndexing": true
 }

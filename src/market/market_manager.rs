@@ -6,11 +6,11 @@ use anyhow::{anyhow, Context, Result};
 use bigdecimal::BigDecimal;
 use database::models::models::NewMarket;
 use database::persistence::persistence::Persistence;
-use tonic::Status;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use tonic::Status;
 
 #[derive(Debug)]
 pub struct MarketManager<P>
@@ -24,10 +24,44 @@ where
 
 impl<P: Persistence> MarketManager<P> {
     pub fn new(persister: Arc<P>) -> Self {
-        MarketManager {
+        let manager = MarketManager {
             markets: Arc::new(Mutex::new(HashMap::new())),
             market_handles: Arc::new(Mutex::new(Vec::new())),
-            persister,
+            persister: persister.clone(),
+        };
+
+        manager.load_markets_from_db();
+
+        println!(
+            "market_manager : Loaded {} markets from database",
+            manager.markets.lock().unwrap().len()
+        );
+        manager
+    }
+
+    fn load_markets_from_db(&self) {
+        // Load existing markets from database
+        if let Ok(db_markets) = self.persister.list_markets() {
+            for db_market in db_markets {
+                println!(
+                    "Loading market: id={}, base={}, quote={}",
+                    db_market.id, db_market.base_asset, db_market.quote_asset
+                );
+
+                let market = Arc::new(Mutex::new(
+                    Market::new(
+                        self.persister.clone(),
+                        db_market.id.clone(),
+                        db_market.base_asset,
+                        db_market.quote_asset,
+                    )
+                    .expect("Failed to create market"),
+                ));
+
+                if let Ok(mut markets) = self.markets.lock() {
+                    markets.insert(db_market.id, market);
+                }
+            }
         }
     }
 
@@ -60,6 +94,8 @@ impl<P: Persistence> MarketManager<P> {
             let market = Arc::new(Mutex::new(Market::new(
                 self.persister.clone(),
                 market_id.to_string(),
+                base_asset.clone(),
+                quote_asset.clone(),
             )?));
             markets.insert(market_id.to_string(), market);
             self.persister
@@ -79,7 +115,7 @@ impl<P: Persistence> MarketManager<P> {
                 .context("Failed to persist market")
                 .map_err(|e| Status::internal(e.to_string()))?;
         }
-        tracing::debug!(target: "market_manager", "Created market {}", market_id);
+        println!("market_manager : Created market {}", market_id);
         Ok(())
     }
 
@@ -90,7 +126,7 @@ impl<P: Persistence> MarketManager<P> {
         let market_clone = Arc::clone(&market);
         let handle = thread::spawn(move || {
             let market = market_clone.lock().expect("Failed to lock market");
-            market.start_market();
+            let _ = market.start_market();
         });
 
         // Store the thread handle
@@ -100,25 +136,26 @@ impl<P: Persistence> MarketManager<P> {
             .map_err(|e| anyhow!("Failed to acquire lock on market handles: {}", e))?;
         handles.push(handle);
 
-        tracing::debug!(target: "market_manager", "Started market {}", market_id);
+        println!("market_manager : Started market {}", market_id);
         Ok(())
     }
 
     pub fn stop_market(&self, market_id: &str) -> Result<()> {
         let market = self.get_market(market_id)?;
 
-        let mut market_guard = market
+        let market_guard = market
             .lock()
             .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
 
-        market_guard.stop_market();
+        let _ = market_guard.stop_market();
+        println!("market_manager : Stopped market {}", market_id);
         Ok(())
     }
 
     pub fn add_order(&self, order: TradeOrder) -> Result<(Vec<MatchedTrade>, String)> {
         let market = self.get_market(&order.market_id)?;
 
-        let mut market_guard = market
+        let market_guard = market
             .lock()
             .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
 
@@ -129,7 +166,7 @@ impl<P: Persistence> MarketManager<P> {
     pub fn cancel_order(&self, market_id: &str, order_id: String) -> Result<bool> {
         let market = self.get_market(market_id)?;
 
-        let mut market_guard = market
+        let market_guard = market
             .lock()
             .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
 
@@ -149,7 +186,7 @@ impl<P: Persistence> MarketManager<P> {
     pub fn cancel_all_orders(&self, market_id: &str) -> Result<bool> {
         let market = self.get_market(market_id)?;
 
-        let mut market_guard = market
+        let market_guard = market
             .lock()
             .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
 
@@ -163,7 +200,7 @@ impl<P: Persistence> MarketManager<P> {
             .map_err(|e| anyhow!("Failed to acquire lock on markets: {}", e))?;
 
         for market in markets.values() {
-            let mut market_guard = market
+            let market_guard = market
                 .lock()
                 .map_err(|e| anyhow!("Failed to lock market: {}", e))?;
             market_guard.cancel_all_orders()?;

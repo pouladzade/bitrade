@@ -1,22 +1,29 @@
 use super::helper::convert_trades;
-use super::spot::{CancelAllOrdersRequest, CancelAllOrdersResponse};
+use super::spot::WithdrawResponse;
 use crate::grpc::spot::spot_service_server::SpotService;
 use crate::grpc::spot::{
     AddOrderRequest, AddOrderResponse, CancelOrderRequest, CancelOrderResponse,
     CreateMarketRequest, CreateMarketResponse, StartMarketRequest, StartMarketResponse,
     StopMarketRequest, StopMarketResponse,
 };
+use crate::grpc::spot::{
+    CancelAllOrdersRequest, CancelAllOrdersResponse, DepositRequest, DepositResponse,
+    GetBalanceRequest, GetBalanceResponse, WithdrawRequest,
+};
 use crate::market::market_manager::MarketManager;
 use crate::models::trade_order::TradeOrder;
+use crate::wallet::wallet::Wallet;
 use anyhow::{Context, Result};
-use database::models::schema::markets::base_asset;
+use bigdecimal::BigDecimal;
 use database::persistence::thread_safe_persistence::ThreadSafePersistence;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
 pub struct SpotServiceImpl {
     pub market_manager: Arc<RwLock<MarketManager<ThreadSafePersistence>>>,
+    pub wallet_service: Arc<Wallet>,
 }
 
 #[tonic::async_trait]
@@ -38,23 +45,6 @@ impl SpotService for SpotServiceImpl {
             )
             .context("Failed to create market")
             .map_err(|e| Status::internal(e.to_string()))?;
-
-        // self.persister
-        //     .create_market(NewMarket {
-        //         id: market_id.clone(),
-        //         base_asset: req.base_asset.clone(),
-        //         quote_asset: req.quote_asset.clone(),
-        //         default_maker_fee: BigDecimal::from_str(&req.default_maker_fee)
-        //             .context("Failed to parse amount as Decimal")
-        //             .map_err(|e| Status::invalid_argument(e.to_string()))?,
-        //         default_taker_fee: BigDecimal::from_str(&req.default_taker_fee)
-        //             .context("Failed to parse amount as Decimal")
-        //             .map_err(|e| Status::invalid_argument(e.to_string()))?,
-        //         create_time: utils::get_utc_now_time_millisecond(),
-        //         update_time: utils::get_utc_now_time_millisecond(),
-        //     })
-        //     .context("Failed to persist market")
-        //     .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(CreateMarketResponse {
             success: true,
             market_id,
@@ -86,11 +76,10 @@ impl SpotService for SpotServiceImpl {
         let req = request.into_inner();
         let market_id = req.market_id.clone();
         let market_manager = self.market_manager.write().await;
-        market_manager
+        let _ = market_manager
             .start_market(&market_id)
             .context("Failed to create market")
             .map_err(|e| Status::internal(e.to_string()))?;
-
         Ok(Response::new(StartMarketResponse {
             success: true,
             market_id,
@@ -136,7 +125,6 @@ impl SpotService for SpotServiceImpl {
         }))
     }
 
-    #[allow(unused)]
     async fn cancel_all_orders(
         &self,
         request: Request<CancelAllOrdersRequest>,
@@ -152,6 +140,78 @@ impl SpotService for SpotServiceImpl {
         Ok(Response::new(CancelAllOrdersResponse {
             success,
             market_id,
+        }))
+    }
+
+    async fn deposit(
+        &self,
+        request: Request<DepositRequest>,
+    ) -> Result<Response<DepositResponse>, Status> {
+        let req = request.into_inner();
+
+        let err_text = "Failed to convert amount from string";
+        let res = self
+            .wallet_service
+            .deposit(
+                &req.asset.clone(),
+                BigDecimal::from_str(&req.amount)
+                    .context(err_text)
+                    .map_err(|e| Status::internal(e.to_string()))?,
+                &req.user_id,
+            )
+            .context("Failed to deposit")
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(DepositResponse {
+            success: true,
+            asset: res.asset,
+            amount: res.available.to_string(),
+            user_id: res.user_id,
+        }))
+    }
+
+    async fn get_balance(
+        &self,
+        request: Request<GetBalanceRequest>,
+    ) -> Result<Response<GetBalanceResponse>, Status> {
+        let req = request.into_inner();
+
+        let balance = self
+            .wallet_service
+            .get_balance(&req.asset, &req.user_id)
+            .context("Failed to convert amount from string")
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(GetBalanceResponse {
+            user_id: req.user_id,
+            asset: req.asset,
+            amount: balance.to_string(),
+        }))
+    }
+    
+    async fn withdraw(
+        &self,
+        request: Request<WithdrawRequest>,
+    ) -> Result<Response<WithdrawResponse>, Status> {
+        let req = request.into_inner();
+
+        let err_text = "Failed to convert amount from string";
+        let res = self
+            .wallet_service
+            .withdraw(
+                &req.asset.clone(),
+                BigDecimal::from_str(&req.amount)
+                    .context(err_text)
+                    .map_err(|e| Status::internal(e.to_string()))?,
+                &req.user_id,
+            )
+            .context("Failed to withdraw")
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(WithdrawResponse {
+            success: true,
+            asset: res.asset,
+            amount: res.available.to_string(),
+            user_id: res.user_id,
         }))
     }
 }

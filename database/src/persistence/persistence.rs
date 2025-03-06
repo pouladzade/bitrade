@@ -26,15 +26,7 @@ pub trait Persistence: Send + Sync + Clone + Debug {
 
     // Order operations
     fn create_order(&self, order_data: NewOrder) -> Result<Order>;
-    fn update_order(
-        &self,
-        order_id: &str,
-        remain: BigDecimal,
-        filled_base: BigDecimal,
-        filled_quote: BigDecimal,
-        filled_fee: BigDecimal,
-        status: &str,
-    ) -> Result<Order>;
+
 
     // Trade operations
     fn create_trade(&self, trade_data: NewTrade) -> Result<Trade>;
@@ -59,7 +51,28 @@ pub trait Persistence: Send + Sync + Clone + Debug {
         price_change_24h: BigDecimal,
         last_price: BigDecimal,
     ) -> Result<MarketStat>;
-
+    fn cancel_order(&self, order_id: &str) -> Result<Order>;
+    fn cancel_all_orders(&self, market_id: &str) -> Result<Vec<Order>>;
+    fn cancel_all_global_orders(&self) -> Result<Vec<Order>>;
+    fn get_active_orders(&self, market_id: &str) -> Result<Vec<Order>>;
+    fn get_all_active_orders(&self) -> Result<Vec<Order>>;
+    fn get_user_active_orders_count(&self, market_id: &str, user_id: &str) -> Result<Vec<Order>>;
+    fn execute_trade(
+        &self,
+        is_buyer_taker: bool,
+        market_id: String,
+        base_asset: String,
+        quote_asset: String,
+        buyer_user_id: String,
+        seller_user_id: String,
+        buyer_order_id: String,
+        seller_order_id: String,
+        price: BigDecimal,
+        amount: BigDecimal,
+        quote_amount: BigDecimal,
+        buyer_fee: BigDecimal,
+        seller_fee: BigDecimal,
+    ) -> Result<NewTrade>;
     // Transaction support
     fn with_transaction<F, T>(&self, operation: F) -> Result<T>
     where

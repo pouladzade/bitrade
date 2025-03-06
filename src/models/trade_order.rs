@@ -1,36 +1,8 @@
 use bigdecimal::BigDecimal;
-use serde::{Deserialize, Serialize};
-use serde_json::from_str;
-use std::cmp::Ordering;
 use database::models::models::*;
-use std::str::FromStr;
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 #[derive(Serialize, Deserialize, Debug, Clone)]
-/// Represents an order in the trading system.
-///
-/// # Fields
-///
-/// * `id` - Unique order identifier.
-/// * `base_asset` - Base currency (e.g., BTC).
-/// * `quote_asset` - Quote currency (e.g., USDT).
-/// * `market_id` - Market identifier (e.g., BTC/USDT).
-/// * `order_type` - Type of the order (e.g., Limit, Market).
-/// * `side` - Side of the order (Buy or Sell).
-/// * `user_id` - Owner of the order.
-/// * `price` - Order price.
-/// * `amount` - Total amount of the order.
-///
-/// * `maker_fee` - Fee if executed as maker.
-/// * `taker_fee` - Fee if executed as taker.
-///
-/// * `create_time` - Unix timestamp when the order was created.
-///
-/// * `remain` - Remaining unfilled amount.
-/// * `frozen` - Frozen funds for the order.
-/// * `filled_base` - Filled amount in base asset.
-/// * `filled_quote` - Filled amount in quote asset.
-/// * `filled_fee` - Accumulated fee paid.
-/// * `update_time` - Last update timestamp.
-/// * `partially_filled` - Indicates if the order is partially filled.
 pub struct TradeOrder {
     // Immutable order details
     pub id: String,
@@ -47,11 +19,11 @@ pub struct TradeOrder {
 
     pub create_time: i64,
     // Mutable order details
-    pub remain: BigDecimal,    
+    pub remain: BigDecimal,
     pub filled_base: BigDecimal,
     pub filled_quote: BigDecimal,
     pub filled_fee: BigDecimal,
-    pub update_time: i64,    
+    pub update_time: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -175,5 +147,33 @@ pub fn determine_order_status(trade_order: &TradeOrder) -> String {
         "Partially Filled".to_string()
     } else {
         "Open".to_string()
+    }
+}
+
+impl TryFrom<Order> for TradeOrder {
+    type Error = anyhow::Error;
+
+    fn try_from(order: Order) -> Result<Self, Self::Error> {
+        Ok(TradeOrder {
+            id: order.id,
+            market_id: order.market_id,
+            user_id: order.user_id,
+            order_type: OrderType::try_from(order.order_type.as_str())
+                .map_err(|e| anyhow::anyhow!("Invalid OrderType: {}", e))
+                .unwrap(),
+            side: OrderSide::try_from(order.side.as_str())
+                .map_err(|e| anyhow::anyhow!("Invalid OrderSide: {}", e))
+                .unwrap(),
+            price: order.price,
+            amount: order.amount,
+            remain: order.remain,
+            filled_base: order.filled_base,
+            filled_quote: order.filled_quote,
+            filled_fee: order.filled_fee,
+            maker_fee: order.maker_fee,
+            taker_fee: order.taker_fee,
+            create_time: order.create_time,
+            update_time: order.update_time,
+        })
     }
 }

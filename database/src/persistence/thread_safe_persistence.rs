@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bigdecimal::BigDecimal;
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
 
@@ -114,30 +115,6 @@ impl Persistence for ThreadSafePersistence {
         self.repository.create_order(order_data)
     }
 
-    fn update_order(
-        &self,
-        order_id: &str,
-        remain: bigdecimal::BigDecimal,
-        filled_base: bigdecimal::BigDecimal,
-        filled_quote: bigdecimal::BigDecimal,
-        filled_fee: bigdecimal::BigDecimal,
-        status: &str,
-    ) -> Result<Order> {
-        let _lock = self
-            .write_lock
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        info!("Updating order: {}", order_id);
-        self.repository.update_order(
-            order_id,
-            remain,
-            filled_base,
-            filled_quote,
-            filled_fee,
-            status,
-        )
-    }
-
     // Trade operations
     fn create_trade(&self, trade_data: NewTrade) -> Result<Trade> {
         let _lock = self
@@ -198,7 +175,90 @@ impl Persistence for ThreadSafePersistence {
             last_price,
         )
     }
+    fn execute_trade(
+        &self,
+        is_buyer_taker: bool,
+        market_id: String,
+        base_asset: String,
+        quote_asset: String,
+        buyer_user_id: String,
+        seller_user_id: String,
+        buyer_order_id: String,
+        seller_order_id: String,
+        price: BigDecimal,
+        amount: BigDecimal,
+        quote_amount: BigDecimal,
+        buyer_fee: BigDecimal,
+        seller_fee: BigDecimal,
+    ) -> Result<NewTrade> {
+        let _lock = self
+            .write_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+        self.repository.execute_trade(
+            is_buyer_taker,
+            market_id,
+            base_asset,
+            quote_asset,
+            buyer_user_id,
+            seller_user_id,
+            buyer_order_id,
+            seller_order_id,
+            price,
+            amount,
+            quote_amount,
+            buyer_fee,
+            seller_fee,
+        )
+    }
 
+    fn cancel_order(&self, order_id: &str) -> Result<Order> {
+        let _lock = self
+            .write_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+        self.repository.cancel_order(order_id)
+    }
+
+    fn cancel_all_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+        let _lock = self
+            .write_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+        self.repository.cancel_all_orders(market_id)
+    }
+
+    fn cancel_all_global_orders(&self) -> Result<Vec<Order>> {
+        let _lock = self
+            .write_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+        self.repository.cancel_all_global_orders()
+    }
+
+    fn get_active_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+        let _lock = self
+            .write_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+        self.repository.get_active_orders(market_id)
+    }
+
+    fn get_all_active_orders(&self) -> Result<Vec<Order>> {
+        let _lock = self
+            .write_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+        self.repository.get_all_active_orders()
+    }
+    fn get_user_active_orders_count(&self, market_id: &str, user_id: &str) -> Result<Vec<Order>> {
+        let _lock = self
+            .write_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
+        self.repository
+            .get_user_active_orders_count(market_id, user_id)
+    }
     // Transaction support
     fn with_transaction<F, T>(&self, operation: F) -> Result<T>
     where

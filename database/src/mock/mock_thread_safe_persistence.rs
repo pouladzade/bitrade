@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bigdecimal::BigDecimal;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -79,31 +80,6 @@ impl Persistence for MockThreadSafePersistence {
 
     fn get_order(&self, order_id: &str) -> Result<Option<Order>> {
         Ok(self.orders.lock().unwrap().get(order_id).cloned())
-    }
-    fn update_order(
-        &self,
-        order_id: &str,
-        remain: bigdecimal::BigDecimal,
-        filled_base: bigdecimal::BigDecimal,
-        filled_quote: bigdecimal::BigDecimal,
-        filled_fee: bigdecimal::BigDecimal,
-        status: &str,
-    ) -> Result<Order> {
-        let mut orders = self.orders.lock().unwrap();
-
-        if let Some(mut order) = orders.get(order_id).cloned() {
-            order.remain = remain;
-            order.filled_base = filled_base;
-            order.filled_quote = filled_quote;
-            order.filled_fee = filled_fee;
-
-            order.status = status.to_string();
-
-            orders.insert(order_id.to_string(), order.clone());
-            Ok(order)
-        } else {
-            Err(anyhow::anyhow!("Order not found"))
-        }
     }
     fn get_open_orders_for_market(&self, market_id: &str) -> Result<Vec<Order>> {
         let orders = self
@@ -323,7 +299,47 @@ impl Persistence for MockThreadSafePersistence {
         self.insert_market_stat(market_stat.clone());
         Ok(market_stat)
     }
+    fn execute_trade(
+        &self,
+        is_buyer_taker: bool,
+        market_id: String,
+        base_asset: String,
+        quote_asset: String,
+        buyer_user_id: String,
+        seller_user_id: String,
+        buyer_order_id: String,
+        seller_order_id: String,
+        price: BigDecimal,
+        amount: BigDecimal,
+        quote_amount: BigDecimal,
+        buyer_fee: BigDecimal,
+        seller_fee: BigDecimal,
+    ) -> Result<NewTrade> {
+        unimplemented!()
+    }
 
+    fn cancel_order(&self, order_id: &str) -> Result<Order> {
+        unimplemented!()
+    }
+
+    fn cancel_all_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+        unimplemented!()
+    }
+
+    fn cancel_all_global_orders(&self) -> Result<Vec<Order>> {
+        unimplemented!()
+    }
+
+    fn get_active_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+        unimplemented!()
+    }
+
+    fn get_all_active_orders(&self) -> Result<Vec<Order>> {
+        unimplemented!()
+    }
+    fn get_user_active_orders_count(&self, market_id: &str, user_id: &str) -> Result<Vec<Order>> {
+        unimplemented!()
+    }
     // Transaction support
     fn with_transaction<F, T>(&self, operation: F) -> Result<T>
     where

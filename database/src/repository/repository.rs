@@ -1,15 +1,18 @@
 // repository.rs
 // Implementation of repository pattern for database operations
 
-use super::provider::{DatabaseReader, DatabaseWriter};
 use crate::models::models::*;
 use crate::models::schema::*;
 use crate::{DbConnection, DbPool};
+use anyhow::Context;
 use anyhow::Result;
 use bigdecimal::BigDecimal;
+use chrono::Utc;
 use diesel::prelude::*;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
+
 pub struct Repository {
     pool: DbPool,
 }
@@ -21,6 +24,207 @@ impl Repository {
 
     fn get_conn(&self) -> Result<DbConnection> {
         Ok(self.pool.get()?)
+    }
+
+    pub fn execute_trade(
+        &self,
+        is_buyer_taker: bool,
+        market_id: String,
+        base_asset: String,
+        quote_asset: String,
+        buyer_user_id: String,
+        seller_user_id: String,
+        buyer_order_id: String,
+        seller_order_id: String,
+        price: BigDecimal,
+        amount: BigDecimal,
+        quote_amount: BigDecimal,
+        buyer_fee: BigDecimal,
+        seller_fee: BigDecimal,
+    ) -> Result<NewTrade> {
+        if buyer_user_id == seller_user_id {
+            return Err(anyhow::anyhow!("Buyer and seller cannot be the same user"));
+        }
+        let conn = &mut self.get_conn()?;
+        conn.transaction::<_, anyhow::Error, _>(|conn| {
+            // 🔹 Fetch & Lock Seller's Balance
+            let seller_base_balance: Balance = balances::table
+                .filter(balances::user_id.eq(&seller_user_id))
+                .filter(balances::asset.eq(&base_asset))
+                .for_update()
+                .first(conn)
+                .context("Failed to fetch seller balance")?;
+
+            let buyer_quote_balance: Balance = balances::table
+                .filter(balances::user_id.eq(&buyer_user_id))
+                .filter(balances::asset.eq(&quote_asset))
+                .for_update()
+                .first(conn)
+                .context("Failed to fetch buyer balance")?;
+
+            // 🔹 Ensure the seller has enough available balance
+            if seller_base_balance.frozen < amount {
+                return Err(anyhow::anyhow!(
+                    "Insufficient  balance: seller {} has {} but tried to sell {}",
+                    seller_user_id,
+                    seller_base_balance.frozen,
+                    amount
+                ));
+            }
+
+            // 🔹 Ensure the Buyer has enough available balance
+            if buyer_quote_balance.frozen < amount {
+                return Err(anyhow::anyhow!(
+                    "Insufficient  balance: buyer {} has {} but tried to buy {}",
+                    buyer_user_id,
+                    buyer_quote_balance.frozen,
+                    amount
+                ));
+            }
+
+            // 🔹 Deduct base asset from Seller
+            diesel::update(&seller_base_balance.clone())
+                .set((balances::frozen.eq(seller_base_balance.frozen - &amount),))
+                .execute(conn)
+                .context("Failed to update seller base balance")?;
+
+            // 🔹 Deduct quote asset from Buyer
+            diesel::update(&buyer_quote_balance.clone())
+                .set((balances::frozen.eq(buyer_quote_balance.frozen - &quote_amount),))
+                .execute(conn)
+                .context("Failed to update buyer quote balance")?;
+
+            let seller_quote_balance: Balance = balances::table
+                .filter(balances::user_id.eq(&seller_user_id))
+                .filter(balances::asset.eq(&quote_asset))
+                .for_update()
+                .first(conn)
+                .context("Failed to fetch seller quote balance")?;
+
+            let buyer_base_balance: Balance = balances::table
+                .filter(balances::user_id.eq(&buyer_user_id))
+                .filter(balances::asset.eq(&base_asset))
+                .for_update()
+                .first(conn)
+                .context("Failed to fetch buyer balance")?;
+
+            let seller_receives = &quote_amount * (1 - &seller_fee);
+            diesel::update(&seller_quote_balance.clone())
+                .set(balances::available.eq(seller_quote_balance.available + seller_receives))
+                .execute(conn)
+                .context("Failed to update buyer balance")?;
+
+            let buyer_receives = &amount * (1 - &buyer_fee);
+            diesel::update(&buyer_base_balance.clone())
+                .set(balances::available.eq(buyer_base_balance.available + buyer_receives))
+                .execute(conn)
+                .context("Failed to update buyer balance")?;
+
+            // 🔹 Fetch & Lock Seller Order
+            let seller_order: Order = orders::table
+                .filter(orders::id.eq(&seller_order_id))
+                .filter(orders::status.eq_any(&[
+                    OrderStatus::Open.as_str(),
+                    OrderStatus::PartiallyFilled.as_str(),
+                ]))
+                .for_update()
+                .first(conn)
+                .context("Failed to fetch seller order")?;
+
+            let new_seller_filled_base = &seller_order.filled_base + &amount;
+            let new_seller_filled_quote = &seller_order.filled_quote + &quote_amount;
+            let new_seller_filled_fee = &seller_order.filled_fee + &seller_fee;
+            let new_seller_remain = &seller_order.remain - &amount;
+            let seller_status = if new_seller_filled_base >= seller_order.amount {
+                OrderStatus::Filled.as_str()
+            } else {
+                OrderStatus::PartiallyFilled.as_str()
+            };
+
+            diesel::update(&seller_order)
+                .set((
+                    orders::filled_base.eq(new_seller_filled_base),
+                    orders::filled_quote.eq(new_seller_filled_quote),
+                    orders::filled_fee.eq(new_seller_filled_fee),
+                    orders::remain.eq(new_seller_remain),
+                    orders::status.eq(seller_status),
+                ))
+                .execute(conn)
+                .context("Failed to update seller order")?;
+
+            // 🔹 Fetch & Lock Buyer Order
+            let buyer_order: Order = orders::table
+                .filter(orders::id.eq(&buyer_order_id))
+                .filter(orders::status.eq_any(&[
+                    OrderStatus::Open.as_str(),
+                    OrderStatus::PartiallyFilled.as_str(),
+                ]))
+                .for_update()
+                .first(conn)
+                .context("Failed to fetch buyer order")?;
+
+            let new_buyer_filled_base = &buyer_order.filled_base + &amount;
+            let new_buyer_filled_quote = &buyer_order.filled_quote + &quote_amount;
+            let new_buyer_filled_fee = &buyer_order.filled_fee + &buyer_fee;
+            let new_buyer_remain = &buyer_order.remain - &amount;
+            let buyer_status = if new_buyer_filled_base >= buyer_order.amount {
+                OrderStatus::Filled.as_str()
+            } else {
+                OrderStatus::PartiallyFilled.as_str()
+            };
+
+
+            diesel::update(&buyer_order)
+                .set((
+                    orders::filled_base.eq(new_buyer_filled_base),
+                    orders::filled_quote.eq(new_buyer_filled_quote),
+                    orders::filled_fee.eq(new_buyer_filled_fee),
+                    orders::remain.eq(new_buyer_remain),
+                    orders::status.eq(buyer_status),
+                ))
+                .execute(conn)
+                .map_err(|e| anyhow::anyhow!("Failed to update buyer order: {}", e))?;
+            let (taker_user_id, taker_order_id, taker_fee) = if is_buyer_taker {
+                (
+                    buyer_user_id.clone(),
+                    buyer_order_id.clone(),
+                    buyer_fee.clone(),
+                )
+            } else {
+                (
+                    seller_user_id.clone(),
+                    seller_order_id.clone(),
+                    seller_fee.clone(),
+                )
+            };
+            let (maker_user_id, maker_order_id, maker_fee) = if is_buyer_taker {
+                (seller_user_id, seller_order_id, seller_fee)
+            } else {
+                (buyer_user_id, buyer_order_id, buyer_fee)
+            };
+            // 🔹 Insert the Trade
+            let new_trade = NewTrade {
+                id: Uuid::new_v4().to_string(),
+                timestamp: Utc::now().timestamp(),
+                market_id,
+                price,
+                amount,
+                quote_amount,
+                taker_user_id,
+                taker_order_id,
+                taker_fee,
+                maker_user_id,
+                maker_order_id,
+                maker_fee,
+            };
+
+            diesel::insert_into(trades::table)
+                .values(&new_trade)
+                .execute(conn)
+                .context("Failed to insert new trade")?;
+
+            Ok(new_trade)
+        })
     }
 
     // Market operations
@@ -54,45 +258,57 @@ impl Repository {
     pub fn create_order(&self, order_data: NewOrder) -> Result<Order> {
         let conn = &mut self.get_conn()?;
 
-        let result = diesel::insert_into(orders::table)
-            .values(&order_data)
-            .get_result(conn)?;
+        conn.transaction::<Order, anyhow::Error, _>(|conn| {
+            // Get market details first
+            let market = markets::table
+                .find(&order_data.market_id)
+                .first::<Market>(conn)
+                .context("Failed to fetch market")?;
 
-        Ok(result)
+            // Calculate required amount based on order side
+            let order_side = OrderSide::from_str(&order_data.side)
+                .map_err(|e| anyhow::anyhow!("Invalid order side: {}", e))?;
+
+            match order_side {
+                OrderSide::Buy => {
+                    // For buy orders, we need to lock quote_asset (price * amount)
+                    let quote_amount = &order_data.price * &order_data.amount;
+
+                    // Decrease available and increase frozen (freezing the funds)
+                    self.update_or_create_balance(
+                        &order_data.user_id,
+                        &market.quote_asset,
+                        -quote_amount.clone(),
+                        quote_amount,
+                    )
+                    .context("Failed to update buyer balance")?;
+                }
+                OrderSide::Sell => {
+                    // For sell orders, we need to lock base_asset
+                    // Decrease available and increase frozen (freezing the funds)
+                    self.update_or_create_balance(
+                        &order_data.user_id,
+                        &market.base_asset,
+                        -order_data.amount.clone(),
+                        order_data.amount.clone(),
+                    )
+                    .context("Failed to update seller balance")?;
+                }
+            }
+
+            // Create the order
+            let result = diesel::insert_into(orders::table)
+                .values(&order_data)
+                .get_result(conn)
+                .context("Failed to insert order")?;
+
+            Ok(result)
+        })
     }
 
     pub fn get_order(&self, order_id: &str) -> Result<Option<Order>> {
         let conn = &mut self.get_conn()?;
-
         let result = orders::table.find(order_id).first(conn).optional()?;
-
-        Ok(result)
-    }
-
-    pub fn update_order(
-        &self,
-        order_id: &str,
-        remain: BigDecimal,
-        filled_base: BigDecimal,
-        filled_quote: BigDecimal,
-        filled_fee: BigDecimal,
-
-        status: &str,
-    ) -> Result<Order> {
-        let conn = &mut self.get_conn()?;
-
-        let current_time = chrono::Utc::now().timestamp_millis();
-
-        let result = diesel::update(orders::table.find(order_id))
-            .set((
-                orders::remain.eq(remain),
-                orders::filled_base.eq(filled_base),
-                orders::filled_quote.eq(filled_quote),
-                orders::filled_fee.eq(filled_fee),
-                orders::status.eq(status),
-                orders::update_time.eq(current_time),
-            ))
-            .get_result(conn)?;
 
         Ok(result)
     }
@@ -102,7 +318,10 @@ impl Repository {
 
         let result = orders::table
             .filter(orders::market_id.eq(market_id))
-            .filter(orders::status.eq("OPEN"))
+            .filter(orders::status.eq_any(&[
+                OrderStatus::Open.as_str(),
+                OrderStatus::PartiallyFilled.as_str(),
+            ]))
             .order(orders::create_time.desc())
             .load(conn)?;
 
@@ -311,108 +530,229 @@ impl Repository {
 
         Ok(result)
     }
-}
 
-impl DatabaseReader for Repository {
-    fn get_market(&self, market_id: &str) -> Result<Option<Market>, anyhow::Error> {
-        self.get_market(market_id)
+    pub fn cancel_order(&self, order_id: &str) -> Result<Order> {
+        let conn = &mut self.get_conn()?;
+        conn.transaction::<Order, anyhow::Error, _>(|conn| {
+            // Fetch the order first
+            let order = orders::table
+                .filter(orders::id.eq(order_id))
+                .first::<Order>(conn)
+                .context("Order not found")?;
+
+            // Check if order is already in a final state
+            let current_status = OrderStatus::from_str(&order.status)
+                .map_err(|e| anyhow::anyhow!("Failed to parse order status: {}", e))?;
+            if matches!(
+                current_status,
+                OrderStatus::Filled | OrderStatus::Canceled | OrderStatus::Rejected
+            ) {
+                return Err(anyhow::anyhow!("Order already in final state"));
+            }
+
+            // Parse the order side
+            let order_side = OrderSide::from_str(&order.side)
+                .map_err(|e| anyhow::anyhow!("Failed to parse order side: {}", e))?;
+
+            // Fetch the market to determine assets
+            let market = markets::table
+                .filter(markets::id.eq(&order.market_id))
+                .first::<Market>(conn)
+                .context("Market not found")?;
+
+            // Calculate remaining amount to unfreeze
+            let (asset, unfreeze_amount) = match order_side {
+                OrderSide::Buy => (market.quote_asset.clone(), order.remain * &order.price),
+                OrderSide::Sell => (market.base_asset.clone(), order.remain),
+            };
+
+            // Update order status to CANCELED
+            let updated_order = diesel::update(orders::table.find(order_id))
+                .set((
+                    orders::status.eq(OrderStatus::Canceled.as_str()),
+                    orders::update_time.eq(chrono::Utc::now().timestamp()),
+                ))
+                .get_result::<Order>(conn)
+                .context("Failed to update order status")?;
+
+            // Unfreeze the balance
+            diesel::update(balances::table)
+                .filter(balances::user_id.eq(&order.user_id))
+                .filter(balances::asset.eq(&asset))
+                .set((
+                    balances::available.eq(balances::available + unfreeze_amount.clone()),
+                    balances::frozen.eq(balances::frozen - unfreeze_amount),
+                ))
+                .execute(conn)
+                .context("Failed to unfreeze balance")?;
+
+            Ok(updated_order)
+        })
     }
 
-    fn list_markets(&self) -> Result<Vec<Market>> {
-        self.list_markets()
+    /// Cancel all active orders for a specific market
+    pub fn cancel_all_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+        let conn = &mut self.get_conn()?;
+        conn.transaction::<Vec<Order>, anyhow::Error, _>(|conn| {
+            // Fetch all active orders for the market
+            let active_orders = orders::table
+                .filter(orders::market_id.eq(market_id))
+                .filter(orders::status.eq_any(&[
+                    OrderStatus::Open.as_str(),
+                    OrderStatus::PartiallyFilled.as_str(),
+                ]))
+                .load::<Order>(conn)
+                .context("Failed to fetch active orders")?;
+
+            let mut canceled_orders = Vec::new();
+
+            // Fetch market details
+            let market = markets::table
+                .filter(markets::id.eq(market_id))
+                .first::<Market>(conn)
+                .context("Market not found")?;
+
+            for order in active_orders {
+                // Parse the order side
+                let order_side = OrderSide::from_str(&order.side)
+                    .map_err(|e| anyhow::anyhow!("Invalid order side {}", e))?;
+
+                // Determine the asset to unfreeze based on order side
+                let (asset, unfreeze_amount) = match order_side {
+                    OrderSide::Buy => (market.quote_asset.clone(), order.remain * &order.price),
+                    OrderSide::Sell => (market.base_asset.clone(), order.remain),
+                };
+
+                // Update order status to CANCELED
+                let canceled_order = diesel::update(orders::table.find(&order.id))
+                    .set((
+                        orders::status.eq(OrderStatus::Canceled.as_str()),
+                        orders::update_time.eq(chrono::Utc::now().timestamp_millis()),
+                    ))
+                    .get_result::<Order>(conn)
+                    .context("Failed to update order status")?;
+
+                // Unfreeze the balance
+                diesel::update(balances::table)
+                    .filter(balances::user_id.eq(&order.user_id))
+                    .filter(balances::asset.eq(&asset))
+                    .set((
+                        balances::available.eq(balances::available + unfreeze_amount.clone()),
+                        balances::frozen.eq(balances::frozen - unfreeze_amount),
+                    ))
+                    .execute(conn)
+                    .context("Failed to unfreeze balance")?;
+
+                canceled_orders.push(canceled_order);
+            }
+
+            Ok(canceled_orders)
+        })
     }
 
-    fn get_order(&self, order_id: &str) -> Result<Option<Order>> {
-        self.get_order(order_id)
+    /// Cancel all active orders globally
+    pub fn cancel_all_global_orders(&self) -> Result<Vec<Order>> {
+        let conn = &mut self.get_conn()?;
+        conn.transaction::<Vec<Order>, anyhow::Error, _>(|conn| {
+            // Fetch all active orders across all markets
+            let active_orders = orders::table
+                .filter(orders::status.eq_any(&[
+                    OrderStatus::Open.as_str(),
+                    OrderStatus::PartiallyFilled.as_str(),
+                ]))
+                .load::<Order>(conn)
+                .context("Failed to fetch active orders")?;
+
+            let mut canceled_orders = Vec::new();
+
+            for order in active_orders {
+                // Parse the order side
+                let order_side = OrderSide::from_str(&order.side)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse order side: {}", e))?;
+
+                // Fetch the market to determine assets
+                let market = markets::table
+                    .filter(markets::id.eq(&order.market_id))
+                    .first::<Market>(conn)
+                    .context("Market not found")?;
+
+                // Determine the asset to unfreeze based on order side
+                let (asset, unfreeze_amount) = match order_side {
+                    OrderSide::Buy => (market.quote_asset.clone(), order.remain * &order.price),
+                    OrderSide::Sell => (market.base_asset.clone(), order.remain),
+                };
+
+                // Update order status to CANCELED
+                let canceled_order = diesel::update(orders::table.find(&order.id))
+                    .set((
+                        orders::status.eq(OrderStatus::Canceled.as_str()),
+                        orders::update_time.eq(chrono::Utc::now().timestamp()),
+                    ))
+                    .get_result::<Order>(conn)
+                    .context("Failed to update order status")?;
+
+                // Unfreeze the balance
+                diesel::update(balances::table)
+                    .filter(balances::user_id.eq(&order.user_id))
+                    .filter(balances::asset.eq(&asset))
+                    .set((
+                        balances::available.eq(balances::available + unfreeze_amount.clone()),
+                        balances::frozen.eq(balances::frozen - unfreeze_amount),
+                    ))
+                    .execute(conn)
+                    .context("Failed to unfreeze balance")?;
+
+                canceled_orders.push(canceled_order);
+            }
+
+            Ok(canceled_orders)
+        })
     }
 
-    fn get_open_orders_for_market(&self, market_id: &str) -> Result<Vec<Order>> {
-        self.get_open_orders_for_market(market_id)
+    /// Recover active orders for a specific market to reload into the order book
+    pub fn get_active_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+        let conn = &mut self.get_conn()?;
+        orders::table
+            .filter(orders::market_id.eq(market_id))
+            .filter(orders::status.eq_any(&[
+                OrderStatus::Open.as_str(),
+                OrderStatus::PartiallyFilled.as_str(),
+            ]))
+            .filter(orders::remain.gt(BigDecimal::from(0)))
+            .order(orders::create_time.asc())
+            .load::<Order>(conn)
+            .context("Failed to retrieve active orders")
     }
 
-    fn get_user_orders(&self, user_id: &str, limit: i64) -> Result<Vec<Order>> {
-        self.get_user_orders(user_id, limit)
+    /// Recover all active orders across all markets
+    pub fn get_all_active_orders(&self) -> Result<Vec<Order>> {
+        let conn = &mut self.get_conn()?;
+        orders::table
+            .filter(orders::status.eq_any(&[
+                OrderStatus::Open.as_str(),
+                OrderStatus::PartiallyFilled.as_str(),
+            ]))
+            .filter(orders::remain.gt(BigDecimal::from(0)))
+            .order(orders::create_time.asc())
+            .load::<Order>(conn)
+            .context("Failed to retrieve all active orders")
     }
 
-    fn get_trades_for_market(&self, market_id: &str, limit: i64) -> Result<Vec<Trade>> {
-        self.get_trades_for_market(market_id, limit)
-    }
-
-    fn get_trades_for_order(&self, order_id: &str) -> Result<Vec<Trade>> {
-        self.get_trades_for_order(order_id)
-    }
-
-    fn get_user_trades(&self, user_id: &str, limit: i64) -> Result<Vec<Trade>> {
-        self.get_user_trades(user_id, limit)
-    }
-
-    fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Balance>> {
-        self.get_balance(user_id, asset)
-    }
-
-    fn get_market_stats(&self, market_id: &str) -> Result<Option<MarketStat>> {
-        self.get_market_stats(market_id)
-    }
-}
-
-impl DatabaseWriter for Repository {
-    fn create_market(&self, market_data: NewMarket) -> Result<Market> {
-        self.create_market(market_data)
-    }
-
-    fn create_order(&self, order_data: NewOrder) -> Result<Order> {
-        self.create_order(order_data)
-    }
-
-    fn update_order(
-        &self,
-        order_id: &str,
-        remain: BigDecimal,
-        filled_base: BigDecimal,
-        filled_quote: BigDecimal,
-        filled_fee: BigDecimal,
-        status: &str,
-    ) -> Result<Order> {
-        self.update_order(
-            order_id,
-            remain,
-            filled_base,
-            filled_quote,
-            filled_fee,
-            status,
-        )
-    }
-
-    fn create_trade(&self, trade_data: NewTrade) -> Result<Trade> {
-        self.create_trade(trade_data)
-    }
-
-    fn update_or_create_balance(
-        &self,
-        user_id: &str,
-        asset: &str,
-        available_delta: BigDecimal,
-        frozen_delta: BigDecimal,
-    ) -> Result<Balance> {
-        self.update_or_create_balance(user_id, asset, available_delta, frozen_delta)
-    }
-
-    fn update_market_stats(
+    pub fn get_user_active_orders_count(
         &self,
         market_id: &str,
-        high_24h: BigDecimal,
-        low_24h: BigDecimal,
-        volume_24h: BigDecimal,
-        price_change_24h: BigDecimal,
-        last_price: BigDecimal,
-    ) -> Result<MarketStat> {
-        self.update_market_stats(
-            market_id,
-            high_24h,
-            low_24h,
-            volume_24h,
-            price_change_24h,
-            last_price,
-        )
+        user_id: &str,
+    ) -> Result<Vec<Order>> {
+        let conn = &mut self.get_conn()?;
+        orders::table
+            .filter(orders::market_id.eq(market_id))
+            .filter(orders::user_id.eq(user_id))
+            .filter(orders::status.eq_any(&[
+                OrderStatus::Open.as_str(),
+                OrderStatus::PartiallyFilled.as_str(),
+            ]))
+            .order(orders::create_time.asc())
+            .load::<Order>(conn)
+            .context("Failed to retrieve all active orders")
     }
 }
