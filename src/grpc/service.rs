@@ -12,6 +12,7 @@ use crate::grpc::spot::{
 };
 use crate::market::market_manager::MarketManager;
 use crate::models::trade_order::TradeOrder;
+use crate::validation::{validate_add_order_request, validate_create_market_request};
 use crate::wallet::wallet::Wallet;
 use anyhow::{Context, Result};
 use bigdecimal::BigDecimal;
@@ -21,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
+#[derive(Clone)]
 pub struct SpotServiceImpl {
     pub market_manager: Arc<RwLock<MarketManager<ThreadSafePersistence>>>,
     pub wallet_service: Arc<Wallet>,
@@ -33,6 +35,11 @@ impl SpotService for SpotServiceImpl {
         request: Request<CreateMarketRequest>,
     ) -> Result<Response<CreateMarketResponse>, Status> {
         let req = request.into_inner();
+
+        // Validate the request
+        validate_create_market_request(&req)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
         let market_id = req.market_id.clone();
         let market_manager = self.market_manager.write().await;
         market_manager
@@ -92,6 +99,9 @@ impl SpotService for SpotServiceImpl {
     ) -> Result<Response<AddOrderResponse>, Status> {
         let req = request.into_inner();
 
+        // Validate the request
+        validate_add_order_request(&req).map_err(|e| Status::invalid_argument(e.to_string()))?;
+
         let order = TradeOrder::try_from(req)
             .context("Failed to convert AddOrderRequest")
             .map_err(|e| Status::internal(e.to_string()))?;
@@ -115,7 +125,7 @@ impl SpotService for SpotServiceImpl {
         let market_id = req.market_id.clone();
         let market_manager = self.market_manager.write().await;
         let success = market_manager
-            .cancel_order(&req.order_id, req.market_id)
+            .cancel_order(&req.market_id, req.order_id)
             .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(CancelOrderResponse {
@@ -187,7 +197,7 @@ impl SpotService for SpotServiceImpl {
             amount: balance.to_string(),
         }))
     }
-    
+
     async fn withdraw(
         &self,
         request: Request<WithdrawRequest>,

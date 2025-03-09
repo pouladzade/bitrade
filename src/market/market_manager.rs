@@ -4,7 +4,7 @@ use crate::models::trade_order::TradeOrder;
 use crate::utils;
 use anyhow::{anyhow, Context, Result};
 use bigdecimal::BigDecimal;
-use database::models::models::NewMarket;
+use database::models::models::{MarketStatus, NewMarket};
 use database::persistence::persistence::Persistence;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -111,6 +111,15 @@ impl<P: Persistence> MarketManager<P> {
                         .map_err(|e| Status::invalid_argument(e.to_string()))?,
                     create_time: utils::get_utc_now_time_millisecond(),
                     update_time: utils::get_utc_now_time_millisecond(),
+                    amount_precision: 8,
+                    min_base_amount: BigDecimal::from_str("0.00000000")
+                        .context("Failed to parse amount as Decimal")
+                        .map_err(|e| Status::invalid_argument(e.to_string()))?,
+                    min_quote_amount: BigDecimal::from_str("0.00000000")
+                        .context("Failed to parse amount as Decimal")
+                        .map_err(|e| Status::invalid_argument(e.to_string()))?,
+                    price_precision: 8,
+                    status: MarketStatus::Active.as_str().to_string(),
                 })
                 .context("Failed to persist market")
                 .map_err(|e| Status::internal(e.to_string()))?;

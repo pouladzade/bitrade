@@ -2,6 +2,7 @@
 // Implementation of repository pattern for database operations
 
 use crate::models::models::*;
+
 use crate::models::schema::*;
 use crate::{DbConnection, DbPool};
 use anyhow::Context;
@@ -26,7 +27,7 @@ impl Repository {
         Ok(self.pool.get()?)
     }
 
-    pub fn execute_trade(
+    pub fn execute_limit_trade(
         &self,
         is_buyer_taker: bool,
         market_id: String,
@@ -37,14 +38,16 @@ impl Repository {
         buyer_order_id: String,
         seller_order_id: String,
         price: BigDecimal,
-        amount: BigDecimal,
+        base_amount: BigDecimal,
         quote_amount: BigDecimal,
-        buyer_fee: BigDecimal,
-        seller_fee: BigDecimal,
+        buyer_fee_rate: BigDecimal,
+        seller_fee_rate: BigDecimal,
     ) -> Result<NewTrade> {
-        if buyer_user_id == seller_user_id {
-            return Err(anyhow::anyhow!("Buyer and seller cannot be the same user"));
-        }
+        // Ensure buyer and seller are not the same user
+        // if buyer_user_id == seller_user_id {
+        //     return Err(anyhow::anyhow!("Buyer and seller cannot be the same user"));
+        // }
+
         let conn = &mut self.get_conn()?;
         conn.transaction::<_, anyhow::Error, _>(|conn| {
             // 🔹 Fetch & Lock Seller's Balance
@@ -62,64 +65,32 @@ impl Repository {
                 .first(conn)
                 .context("Failed to fetch buyer balance")?;
 
-            // 🔹 Ensure the seller has enough available balance
-            if seller_base_balance.frozen < amount {
+            // 🔹 Ensure the seller has enough frozen balance
+            if seller_base_balance.locked < base_amount {
                 return Err(anyhow::anyhow!(
-                    "Insufficient  balance: seller {} has {} but tried to sell {}",
+                    "Insufficient frozen balance: seller {} has {} {} frozen but needs {}",
                     seller_user_id,
-                    seller_base_balance.frozen,
-                    amount
+                    seller_base_balance.locked,
+                    base_asset,
+                    base_amount
                 ));
             }
 
-            // 🔹 Ensure the Buyer has enough available balance
-            if buyer_quote_balance.frozen < amount {
+            // 🔹 Ensure the buyer has enough frozen balance
+            if buyer_quote_balance.locked < quote_amount {
                 return Err(anyhow::anyhow!(
-                    "Insufficient  balance: buyer {} has {} but tried to buy {}",
+                    "Insufficient frozen balance: buyer {} has {} {} frozen but needs {}",
                     buyer_user_id,
-                    buyer_quote_balance.frozen,
-                    amount
+                    buyer_quote_balance.locked,
+                    quote_asset,
+                    quote_amount
                 ));
             }
-
-            // 🔹 Deduct base asset from Seller
-            diesel::update(&seller_base_balance.clone())
-                .set((balances::frozen.eq(seller_base_balance.frozen - &amount),))
-                .execute(conn)
-                .context("Failed to update seller base balance")?;
-
-            // 🔹 Deduct quote asset from Buyer
-            diesel::update(&buyer_quote_balance.clone())
-                .set((balances::frozen.eq(buyer_quote_balance.frozen - &quote_amount),))
-                .execute(conn)
-                .context("Failed to update buyer quote balance")?;
-
-            let seller_quote_balance: Balance = balances::table
-                .filter(balances::user_id.eq(&seller_user_id))
-                .filter(balances::asset.eq(&quote_asset))
-                .for_update()
-                .first(conn)
-                .context("Failed to fetch seller quote balance")?;
-
-            let buyer_base_balance: Balance = balances::table
-                .filter(balances::user_id.eq(&buyer_user_id))
-                .filter(balances::asset.eq(&base_asset))
-                .for_update()
-                .first(conn)
-                .context("Failed to fetch buyer balance")?;
-
-            let seller_receives = &quote_amount * (1 - &seller_fee);
-            diesel::update(&seller_quote_balance.clone())
-                .set(balances::available.eq(seller_quote_balance.available + seller_receives))
-                .execute(conn)
-                .context("Failed to update buyer balance")?;
-
-            let buyer_receives = &amount * (1 - &buyer_fee);
-            diesel::update(&buyer_base_balance.clone())
-                .set(balances::available.eq(buyer_base_balance.available + buyer_receives))
-                .execute(conn)
-                .context("Failed to update buyer balance")?;
-
+            // 🔹 Calculate fees
+            // buyer fee is calculated on the base amount (spent amount)
+            let buyer_fee = (buyer_fee_rate * &base_amount).with_prec(8);
+            // seller fee is calculated on the quote amount (received amount)
+            let seller_fee = (seller_fee_rate * &quote_amount).with_prec(8);
             // 🔹 Fetch & Lock Seller Order
             let seller_order: Order = orders::table
                 .filter(orders::id.eq(&seller_order_id))
@@ -130,23 +101,54 @@ impl Repository {
                 .for_update()
                 .first(conn)
                 .context("Failed to fetch seller order")?;
+            println!("seller_order.remained_base: {}", seller_order.remained_base);
+            let new_seller_filled_base =
+                &seller_order.filled_base.with_prec(8) + &base_amount.with_prec(8);
+            let new_seller_filled_quote =
+                &seller_order.filled_quote.with_prec(8) + &quote_amount.with_prec(8);
+            let new_seller_filled_fee =
+                (&seller_order.filled_fee.with_prec(8) + &seller_fee).with_prec(8);
+            let new_seller_remained_base =
+                &seller_order.remained_base.with_prec(8) - &base_amount.with_prec(8);
+            // remained quote is not needed for the seller order
+            // let new_seller_remained_quote =
+            //     &seller_order.remained_quote.with_prec(8) - &quote_amount.with_prec(8);
+            let seller_status =
+                if new_seller_filled_base.with_prec(8) >= seller_order.base_amount.with_prec(8) {
+                    OrderStatus::Filled.as_str()
+                } else {
+                    OrderStatus::PartiallyFilled.as_str()
+                };
 
-            let new_seller_filled_base = &seller_order.filled_base + &amount;
-            let new_seller_filled_quote = &seller_order.filled_quote + &quote_amount;
-            let new_seller_filled_fee = &seller_order.filled_fee + &seller_fee;
-            let new_seller_remain = &seller_order.remain - &amount;
-            let seller_status = if new_seller_filled_base >= seller_order.amount {
-                OrderStatus::Filled.as_str()
-            } else {
-                OrderStatus::PartiallyFilled.as_str()
-            };
+            // Debug printing for seller order calculations
+            println!("Seller Order Update Values:");
+            println!("  - Order ID: {}", seller_order_id);
+            println!("  - Original filled_base: {}", seller_order.filled_base);
+            println!("  - New filled_base: {}", new_seller_filled_base);
+            println!("  - Original filled_quote: {}", seller_order.filled_quote);
+            println!("  - New filled_quote: {}", new_seller_filled_quote);
+            println!("  - Original filled_fee: {}", seller_order.filled_fee);
+            println!("  - New filled_fee: {}", new_seller_filled_fee);
+            println!("  - Original remained_base: {}", seller_order.remained_base);
+            println!("  - New remained_base: {}", new_seller_remained_base);
+            println!(
+                "  - Original remained_quote: {}",
+                seller_order.remained_quote
+            );
+
+            println!(
+                "  - amount being traded: base={}, quote={}",
+                base_amount, quote_amount
+            );
+            println!("  - fee: {}", seller_fee);
+            println!("  - new status: {}", seller_status);
 
             diesel::update(&seller_order)
                 .set((
-                    orders::filled_base.eq(new_seller_filled_base),
-                    orders::filled_quote.eq(new_seller_filled_quote),
-                    orders::filled_fee.eq(new_seller_filled_fee),
-                    orders::remain.eq(new_seller_remain),
+                    orders::filled_base.eq(new_seller_filled_base.with_prec(8)),
+                    orders::filled_quote.eq(new_seller_filled_quote.with_prec(8)),
+                    orders::filled_fee.eq(new_seller_filled_fee.with_prec(8)),
+                    orders::remained_base.eq(new_seller_remained_base.with_prec(8)),
                     orders::status.eq(seller_status),
                 ))
                 .execute(conn)
@@ -163,59 +165,150 @@ impl Repository {
                 .first(conn)
                 .context("Failed to fetch buyer order")?;
 
-            let new_buyer_filled_base = &buyer_order.filled_base + &amount;
-            let new_buyer_filled_quote = &buyer_order.filled_quote + &quote_amount;
-            let new_buyer_filled_fee = &buyer_order.filled_fee + &buyer_fee;
-            let new_buyer_remain = &buyer_order.remain - &amount;
-            let buyer_status = if new_buyer_filled_base >= buyer_order.amount {
-                OrderStatus::Filled.as_str()
-            } else {
-                OrderStatus::PartiallyFilled.as_str()
-            };
+            let new_buyer_filled_base =
+                &buyer_order.filled_base.with_prec(8) + &base_amount.with_prec(8);
+            let new_buyer_filled_quote =
+                &buyer_order.filled_quote.with_prec(8) + &quote_amount.with_prec(8);
+            let new_buyer_filled_fee =
+                (&buyer_order.filled_fee.with_prec(8) + &buyer_fee).with_prec(8);
+            let new_buyer_remained_base =
+                &buyer_order.remained_base.with_prec(8) - &base_amount.with_prec(8);
+            let new_buyer_remained_quote =
+                &buyer_order.remained_quote.with_prec(8) - &quote_amount.with_prec(8);
 
+            // Debug printing for buyer order calculations
+            println!("Buyer Order Update Values:");
+            println!("  - Order ID: {}", buyer_order_id);
+            println!("  - Original filled_base: {}", buyer_order.filled_base);
+            println!("  - New filled_base: {}", new_buyer_filled_base);
+            println!("  - Original filled_quote: {}", buyer_order.filled_quote);
+            println!("  - New filled_quote: {}", new_buyer_filled_quote);
+            println!("  - Original filled_fee: {}", buyer_order.filled_fee);
+            println!("  - New filled_fee: {}", new_buyer_filled_fee);
+            println!("  - Original remained_base: {}", buyer_order.remained_base);
+            println!("  - New remained_base: {}", new_buyer_remained_base);
+            println!(
+                "  - Original remained_quote: {}",
+                buyer_order.remained_quote
+            );
+            println!("  - New remained_quote: {}", new_buyer_remained_quote);
+            println!(
+                "  - amount being traded: base={}, quote={}",
+                base_amount, quote_amount
+            );
+            println!("  - fee : {}", buyer_fee);
+
+            let buyer_status =
+                if new_buyer_filled_base.with_prec(8) >= buyer_order.base_amount.with_prec(8) {
+                    OrderStatus::Filled.as_str()
+                } else {
+                    OrderStatus::PartiallyFilled.as_str()
+                };
 
             diesel::update(&buyer_order)
                 .set((
-                    orders::filled_base.eq(new_buyer_filled_base),
-                    orders::filled_quote.eq(new_buyer_filled_quote),
-                    orders::filled_fee.eq(new_buyer_filled_fee),
-                    orders::remain.eq(new_buyer_remain),
+                    orders::filled_base.eq(&new_buyer_filled_base.with_prec(8)),
+                    orders::filled_quote.eq(&new_buyer_filled_quote.with_prec(8)),
+                    orders::filled_fee.eq(&new_buyer_filled_fee.with_prec(8)),
+                    orders::remained_base.eq(&new_buyer_remained_base.with_prec(8)),
+                    orders::remained_quote.eq(&new_buyer_remained_quote.with_prec(8)),
                     orders::status.eq(buyer_status),
                 ))
                 .execute(conn)
-                .map_err(|e| anyhow::anyhow!("Failed to update buyer order: {}", e))?;
-            let (taker_user_id, taker_order_id, taker_fee) = if is_buyer_taker {
-                (
-                    buyer_user_id.clone(),
-                    buyer_order_id.clone(),
-                    buyer_fee.clone(),
-                )
+                .context("Failed to update buyer order")?;
+
+            // 🔹 Calculate buyer's quote asset residue
+            let buyer_quote_residue = if buyer_status == OrderStatus::Filled.as_str() {
+                new_buyer_remained_quote
             } else {
-                (
-                    seller_user_id.clone(),
-                    seller_order_id.clone(),
-                    seller_fee.clone(),
+                BigDecimal::from(0)
+            };
+
+            // 🔹 Deduct base asset from seller's frozen balance
+            diesel::update(&seller_base_balance.clone())
+                .set((balances::locked
+                    .eq(seller_base_balance.locked.with_prec(8) - &base_amount.with_prec(8)),))
+                .execute(conn)
+                .context("Failed to update seller base balance")?;
+
+            // 🔹 Deduct quote asset from buyer's frozen balance
+            diesel::update(&buyer_quote_balance.clone())
+                .set((
+                    balances::locked.eq(buyer_quote_balance.locked.with_prec(8)
+                        - &quote_amount.with_prec(8)
+                        - &buyer_quote_residue.with_prec(8)),
+                    balances::available.eq(buyer_quote_balance.available.with_prec(8)
+                        + &buyer_quote_residue.with_prec(8)),
+                ))
+                .execute(conn)
+                .context("Failed to update buyer quote balance")?;
+
+            // 🔹 Fetch seller's quote balance to credit with quote amount
+            let seller_quote_balance: Balance = balances::table
+                .filter(balances::user_id.eq(&seller_user_id))
+                .filter(balances::asset.eq(&quote_asset))
+                .for_update()
+                .first(conn)
+                .context("Failed to fetch seller quote balance")?;
+
+            // 🔹 Fetch buyer's base balance to credit with base amount
+            let buyer_base_balance: Balance = balances::table
+                .filter(balances::user_id.eq(&buyer_user_id))
+                .filter(balances::asset.eq(&base_asset))
+                .for_update()
+                .first(conn)
+                .context("Failed to fetch buyer base balance")?;
+
+            let seller_receives = (&quote_amount - &seller_fee).with_prec(8);
+            diesel::update(&seller_quote_balance.clone())
+                .set(balances::available.eq(seller_quote_balance.available + seller_receives))
+                .execute(conn)
+                .context("Failed to update seller quote balance")?;
+
+            let buyer_receives = (&base_amount - &buyer_fee).with_prec(8);
+            diesel::update(&buyer_base_balance.clone())
+                .set(balances::available.eq(buyer_base_balance.available + buyer_receives))
+                .execute(conn)
+                .context("Failed to update buyer base balance")?;
+            // 🔹 Determine taker and maker for the trade record
+
+            // 🔹 Update fee treasury for quote asset (seller fee)
+            diesel::update(fee_treasury::table)
+                .filter(fee_treasury::market_id.eq(&market_id))
+                .filter(fee_treasury::asset.eq(&quote_asset))
+                .set(
+                    fee_treasury::collected_amount.eq(fee_treasury::collected_amount + &seller_fee),
                 )
-            };
-            let (maker_user_id, maker_order_id, maker_fee) = if is_buyer_taker {
-                (seller_user_id, seller_order_id, seller_fee)
-            } else {
-                (buyer_user_id, buyer_order_id, buyer_fee)
-            };
-            // 🔹 Insert the Trade
+                .execute(conn)
+                .context("Failed to update quote asset fee treasury")?;
+
+            // 🔹 Update fee treasury for base asset (buyer fee)
+            diesel::update(fee_treasury::table)
+                .filter(fee_treasury::market_id.eq(&market_id))
+                .filter(fee_treasury::asset.eq(&base_asset))
+                .set(fee_treasury::collected_amount.eq(fee_treasury::collected_amount + &buyer_fee))
+                .execute(conn)
+                .context("Failed to update base asset fee treasury")?;
+            // 🔹 Create and insert the trade record
             let new_trade = NewTrade {
                 id: Uuid::new_v4().to_string(),
                 timestamp: Utc::now().timestamp(),
                 market_id,
                 price,
-                amount,
+                base_amount,
                 quote_amount,
-                taker_user_id,
-                taker_order_id,
-                taker_fee,
-                maker_user_id,
-                maker_order_id,
-                maker_fee,
+                buyer_user_id,
+                buyer_order_id,
+                buyer_fee,
+                seller_user_id,
+                seller_order_id,
+                seller_fee,
+                taker_side: if is_buyer_taker {
+                    "BUY".to_string()
+                } else {
+                    "SELL".to_string()
+                },
+                is_liquidation: None,
             };
 
             diesel::insert_into(trades::table)
@@ -272,7 +365,7 @@ impl Repository {
             match order_side {
                 OrderSide::Buy => {
                     // For buy orders, we need to lock quote_asset (price * amount)
-                    let quote_amount = &order_data.price * &order_data.amount;
+                    let quote_amount = order_data.quote_amount.clone();
 
                     // Decrease available and increase frozen (freezing the funds)
                     self.update_or_create_balance(
@@ -289,8 +382,8 @@ impl Repository {
                     self.update_or_create_balance(
                         &order_data.user_id,
                         &market.base_asset,
-                        -order_data.amount.clone(),
-                        order_data.amount.clone(),
+                        -order_data.base_amount.clone(),
+                        order_data.base_amount.clone(),
                     )
                     .context("Failed to update seller balance")?;
                 }
@@ -377,9 +470,9 @@ impl Repository {
 
         let result = trades::table
             .filter(
-                trades::taker_order_id
+                trades::buyer_order_id
                     .eq(order_id)
-                    .or(trades::maker_order_id.eq(order_id)),
+                    .or(trades::seller_order_id.eq(order_id)),
             )
             .order(trades::timestamp.desc())
             .load(conn)?;
@@ -392,9 +485,9 @@ impl Repository {
 
         let result = trades::table
             .filter(
-                trades::taker_user_id
+                trades::buyer_user_id
                     .eq(user_id)
-                    .or(trades::maker_user_id.eq(user_id)),
+                    .or(trades::seller_user_id.eq(user_id)),
             )
             .order(trades::timestamp.desc())
             .limit(limit)
@@ -420,7 +513,7 @@ impl Repository {
         user_id: &str,
         asset: &str,
         available_delta: BigDecimal,
-        frozen_delta: BigDecimal,
+        locked_delta: BigDecimal,
     ) -> Result<Balance> {
         let conn = &mut self.get_conn()?;
 
@@ -435,17 +528,17 @@ impl Repository {
         if let Some(balance) = balance_option {
             // Update existing balance
             let new_available = balance.available + available_delta.clone();
-            let new_frozen = balance.frozen + frozen_delta.clone();
+            let new_locked = balance.locked + locked_delta.clone();
 
             // Ensure balances are not negative
-            if new_available < BigDecimal::from(0) || new_frozen < BigDecimal::from(0) {
+            if new_available < BigDecimal::from(0) || new_locked < BigDecimal::from(0) {
                 return Err(anyhow::anyhow!("Insufficient balance"));
             }
 
             let result = diesel::update(balances::table.find((user_id, asset)))
                 .set((
                     balances::available.eq(new_available),
-                    balances::frozen.eq(new_frozen),
+                    balances::locked.eq(new_locked),
                     balances::update_time.eq(current_time),
                 ))
                 .get_result(conn)?;
@@ -457,7 +550,10 @@ impl Repository {
                 user_id: user_id.to_string(),
                 asset: asset.to_string(),
                 available: available_delta,
-                frozen: frozen_delta,
+                locked: locked_delta,
+                reserved: BigDecimal::from(0),
+                total_deposited: BigDecimal::from(0),
+                total_withdrawn: BigDecimal::from(0),
                 update_time: current_time,
             };
 
@@ -562,8 +658,14 @@ impl Repository {
 
             // Calculate remaining amount to unfreeze
             let (asset, unfreeze_amount) = match order_side {
-                OrderSide::Buy => (market.quote_asset.clone(), order.remain * &order.price),
-                OrderSide::Sell => (market.base_asset.clone(), order.remain),
+                OrderSide::Buy => (
+                    market.quote_asset.clone(),
+                    order.quote_amount - order.filled_quote,
+                ),
+                OrderSide::Sell => (
+                    market.base_asset.clone(),
+                    order.base_amount - order.filled_base,
+                ),
             };
 
             // Update order status to CANCELED
@@ -581,7 +683,7 @@ impl Repository {
                 .filter(balances::asset.eq(&asset))
                 .set((
                     balances::available.eq(balances::available + unfreeze_amount.clone()),
-                    balances::frozen.eq(balances::frozen - unfreeze_amount),
+                    balances::locked.eq(balances::locked - unfreeze_amount),
                 ))
                 .execute(conn)
                 .context("Failed to unfreeze balance")?;
@@ -619,8 +721,14 @@ impl Repository {
 
                 // Determine the asset to unfreeze based on order side
                 let (asset, unfreeze_amount) = match order_side {
-                    OrderSide::Buy => (market.quote_asset.clone(), order.remain * &order.price),
-                    OrderSide::Sell => (market.base_asset.clone(), order.remain),
+                    OrderSide::Buy => (
+                        market.quote_asset.clone(),
+                        order.quote_amount - order.filled_quote,
+                    ),
+                    OrderSide::Sell => (
+                        market.base_asset.clone(),
+                        order.base_amount - order.filled_base,
+                    ),
                 };
 
                 // Update order status to CANCELED
@@ -638,7 +746,7 @@ impl Repository {
                     .filter(balances::asset.eq(&asset))
                     .set((
                         balances::available.eq(balances::available + unfreeze_amount.clone()),
-                        balances::frozen.eq(balances::frozen - unfreeze_amount),
+                        balances::locked.eq(balances::locked - unfreeze_amount),
                     ))
                     .execute(conn)
                     .context("Failed to unfreeze balance")?;
@@ -678,8 +786,14 @@ impl Repository {
 
                 // Determine the asset to unfreeze based on order side
                 let (asset, unfreeze_amount) = match order_side {
-                    OrderSide::Buy => (market.quote_asset.clone(), order.remain * &order.price),
-                    OrderSide::Sell => (market.base_asset.clone(), order.remain),
+                    OrderSide::Buy => (
+                        market.quote_asset.clone(),
+                        order.quote_amount - order.filled_quote,
+                    ),
+                    OrderSide::Sell => (
+                        market.base_asset.clone(),
+                        order.base_amount - order.filled_base,
+                    ),
                 };
 
                 // Update order status to CANCELED
@@ -697,7 +811,7 @@ impl Repository {
                     .filter(balances::asset.eq(&asset))
                     .set((
                         balances::available.eq(balances::available + unfreeze_amount.clone()),
-                        balances::frozen.eq(balances::frozen - unfreeze_amount),
+                        balances::locked.eq(balances::locked - unfreeze_amount),
                     ))
                     .execute(conn)
                     .context("Failed to unfreeze balance")?;
@@ -718,7 +832,7 @@ impl Repository {
                 OrderStatus::Open.as_str(),
                 OrderStatus::PartiallyFilled.as_str(),
             ]))
-            .filter(orders::remain.gt(BigDecimal::from(0)))
+            .filter(orders::remained_base.gt(BigDecimal::from(0)))
             .order(orders::create_time.asc())
             .load::<Order>(conn)
             .context("Failed to retrieve active orders")
@@ -732,7 +846,7 @@ impl Repository {
                 OrderStatus::Open.as_str(),
                 OrderStatus::PartiallyFilled.as_str(),
             ]))
-            .filter(orders::remain.gt(BigDecimal::from(0)))
+            .filter(orders::remained_base.gt(BigDecimal::from(0)))
             .order(orders::create_time.asc())
             .load::<Order>(conn)
             .context("Failed to retrieve all active orders")

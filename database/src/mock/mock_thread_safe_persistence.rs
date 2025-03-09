@@ -138,7 +138,7 @@ impl Persistence for MockThreadSafePersistence {
         let trades = self.trades.lock().unwrap();
         let result: Vec<Trade> = trades
             .values()
-            .filter(|t| t.maker_order_id == order_id || t.taker_order_id == order_id)
+            .filter(|t| t.buyer_order_id == order_id || t.seller_order_id == order_id)
             .cloned()
             .collect();
 
@@ -149,7 +149,7 @@ impl Persistence for MockThreadSafePersistence {
         let trades = self.trades.lock().unwrap();
         let mut result: Vec<Trade> = trades
             .values()
-            .filter(|t| t.maker_user_id == user_id || t.taker_user_id == user_id)
+                .filter(|t| t.buyer_user_id == user_id || t.seller_user_id == user_id)
             .cloned()
             .collect();
 
@@ -180,6 +180,11 @@ impl Persistence for MockThreadSafePersistence {
             default_taker_fee: market_data.default_taker_fee,
             create_time: market_data.create_time,
             update_time: market_data.update_time,
+            amount_precision: market_data.amount_precision,
+            min_base_amount: market_data.min_base_amount,
+            min_quote_amount: market_data.min_quote_amount,
+            price_precision: market_data.price_precision,
+            status: market_data.status,
         };
 
         self.insert_market(market.clone());
@@ -194,9 +199,10 @@ impl Persistence for MockThreadSafePersistence {
             market_id: order_data.market_id,
             side: order_data.side,
             price: order_data.price,
-            amount: order_data.amount,
-            remain: order_data.remain,
-
+            base_amount: order_data.base_amount,
+            quote_amount: order_data.quote_amount,
+            remained_base: order_data.remained_base,
+            remained_quote: order_data.remained_quote,
             filled_base: order_data.filled_base,
             filled_quote: order_data.filled_quote,
             filled_fee: order_data.filled_fee,
@@ -204,6 +210,10 @@ impl Persistence for MockThreadSafePersistence {
             order_type: order_data.order_type,
             maker_fee: order_data.maker_fee,
             taker_fee: order_data.taker_fee,
+            client_order_id: order_data.client_order_id,
+            expires_at: order_data.expires_at,
+            post_only: order_data.post_only,
+            time_in_force: order_data.time_in_force,
             create_time: Utc::now().timestamp_millis(),
             update_time: Utc::now().timestamp_millis(),
         };
@@ -217,16 +227,18 @@ impl Persistence for MockThreadSafePersistence {
         let trade = Trade {
             id: trade_data.id,
             market_id: trade_data.market_id,
-            maker_order_id: trade_data.maker_order_id,
-            taker_order_id: trade_data.taker_order_id,
-            maker_user_id: trade_data.maker_user_id,
-            taker_user_id: trade_data.taker_user_id,
+            buyer_order_id: trade_data.buyer_order_id,
+            seller_order_id: trade_data.seller_order_id,
+            buyer_user_id: trade_data.buyer_user_id,
+            seller_user_id: trade_data.seller_user_id,
             price: trade_data.price,
-            amount: trade_data.amount,
+            base_amount: trade_data.base_amount,
             quote_amount: trade_data.quote_amount,
-            maker_fee: trade_data.maker_fee,
-            taker_fee: trade_data.taker_fee,
+            buyer_fee: trade_data.buyer_fee,
+            seller_fee: trade_data.seller_fee,
             timestamp: Utc::now().timestamp_millis(),
+            is_liquidation: trade_data.is_liquidation,
+            taker_side: trade_data.taker_side,
         };
 
         self.insert_trade(trade.clone());
@@ -250,14 +262,14 @@ impl Persistence for MockThreadSafePersistence {
         user_id: &str,
         asset: &str,
         available_delta: bigdecimal::BigDecimal,
-        frozen_delta: bigdecimal::BigDecimal,
+        locked_delta: bigdecimal::BigDecimal,
     ) -> Result<Balance> {
         let mut balances = self.balances.lock().unwrap();
         let key = (user_id.to_string(), asset.to_string());
 
         if let Some(mut balance) = balances.get(&key).cloned() {
             balance.available = balance.available.clone() + available_delta.clone();
-            balance.frozen = balance.frozen.clone() + frozen_delta.clone();
+            balance.locked = balance.locked.clone() + locked_delta.clone();
             balance.update_time = chrono::Utc::now().timestamp_millis();
 
             balances.insert(key, balance.clone());
@@ -267,8 +279,11 @@ impl Persistence for MockThreadSafePersistence {
                 user_id: user_id.to_string(),
                 asset: asset.to_string(),
                 available: available_delta,
-                frozen: frozen_delta,
+                locked: locked_delta,
                 update_time: Utc::now().timestamp_millis(),
+                reserved: BigDecimal::from(0),
+                total_deposited: BigDecimal::from(0),
+                total_withdrawn: BigDecimal::from(0),
             };
 
             balances.insert(key, balance.clone());
@@ -299,7 +314,7 @@ impl Persistence for MockThreadSafePersistence {
         self.insert_market_stat(market_stat.clone());
         Ok(market_stat)
     }
-    fn execute_trade(
+    fn execute_limit_trade(
         &self,
         is_buyer_taker: bool,
         market_id: String,
@@ -310,8 +325,8 @@ impl Persistence for MockThreadSafePersistence {
         buyer_order_id: String,
         seller_order_id: String,
         price: BigDecimal,
-        amount: BigDecimal,
-        quote_amount: BigDecimal,
+        base_amount: BigDecimal,
+        trade_quote_amount: BigDecimal,
         buyer_fee: BigDecimal,
         seller_fee: BigDecimal,
     ) -> Result<NewTrade> {

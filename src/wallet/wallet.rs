@@ -37,7 +37,7 @@ impl Wallet {
             .persister
             .get_balance(&user_id, asset)
             .context("Failed to retrieve balance")?
-            .map(|b| b.frozen)
+            .map(|b| b.locked)
             .unwrap_or_else(|| BigDecimal::from(0));
 
         Ok(balance)
@@ -144,7 +144,7 @@ impl Wallet {
 //                 user_id: &str,
 //                 asset: &str,
 //                 available_delta: BigDecimal,
-//                 frozen_delta: BigDecimal
+//                 locked_delta: BigDecimal
 //             ) -> Result<Balance>;
 
 //             fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Balance>>;

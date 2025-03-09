@@ -12,18 +12,24 @@ pub struct TradeOrder {
     pub side: OrderSide,
     pub user_id: String,
     pub price: BigDecimal,
-    pub amount: BigDecimal,
+    pub base_amount: BigDecimal,
+    pub quote_amount: BigDecimal,
     // Fee structure
     pub maker_fee: BigDecimal,
     pub taker_fee: BigDecimal,
 
     pub create_time: i64,
     // Mutable order details
-    pub remain: BigDecimal,
+    pub remained_base: BigDecimal,
+    pub remained_quote: BigDecimal,
     pub filled_base: BigDecimal,
     pub filled_quote: BigDecimal,
     pub filled_fee: BigDecimal,
     pub update_time: i64,
+    pub client_order_id: Option<String>,
+    pub post_only: Option<bool>,
+    pub time_in_force: Option<TimeInForce>,
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -98,16 +104,16 @@ impl Ord for TradeOrder {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.side, other.side) {
             (OrderSide::Sell, OrderSide::Sell) => {
-                // For bids, higher price comes first
+                // For asks, lower price comes first
                 match other.price.cmp(&self.price) {
-                    Ordering::Equal => self.create_time.cmp(&other.create_time), // Time priority
+                    Ordering::Equal => other.create_time.cmp(&self.create_time), // Time priority
                     ordering => ordering,
                 }
             }
             (OrderSide::Buy, OrderSide::Buy) => {
-                // For asks, lower price comes first
+                // For bids, lower price comes first
                 match self.price.cmp(&other.price) {
-                    Ordering::Equal => self.create_time.cmp(&other.create_time), // Time priority
+                    Ordering::Equal => other.create_time.cmp(&self.create_time), // Time priority
                     ordering => ordering,
                 }
             }
@@ -126,22 +132,30 @@ impl From<TradeOrder> for NewOrder {
             order_type: trade_order.order_type.into(),
             side: trade_order.side.into(),
             price: trade_order.price,
-            amount: trade_order.amount,
+            base_amount: trade_order.base_amount,
+            quote_amount: trade_order.quote_amount,
             maker_fee: trade_order.maker_fee,
             taker_fee: trade_order.taker_fee,
             create_time: trade_order.create_time,
-            remain: trade_order.remain,
+            remained_base: trade_order.remained_base,
+            remained_quote: trade_order.remained_quote,
             filled_base: trade_order.filled_base,
             filled_quote: trade_order.filled_quote,
             filled_fee: trade_order.filled_fee,
             update_time: trade_order.update_time,
+            client_order_id: trade_order.client_order_id,
+            post_only: trade_order.post_only,
+            time_in_force: trade_order
+                .time_in_force
+                .map(|tif| tif.as_str().to_string()),
+            expires_at: trade_order.expires_at,
             status,
         }
     }
 }
 
 pub fn determine_order_status(trade_order: &TradeOrder) -> String {
-    if trade_order.remain == BigDecimal::from(0) {
+    if trade_order.remained_base == BigDecimal::from(0) {
         "Filled".to_string()
     } else if trade_order.filled_base > BigDecimal::from(0) {
         "Partially Filled".to_string()
@@ -165,8 +179,10 @@ impl TryFrom<Order> for TradeOrder {
                 .map_err(|e| anyhow::anyhow!("Invalid OrderSide: {}", e))
                 .unwrap(),
             price: order.price,
-            amount: order.amount,
-            remain: order.remain,
+            base_amount: order.base_amount,
+            quote_amount: order.quote_amount,
+            remained_base: order.remained_base,
+            remained_quote: order.remained_quote,
             filled_base: order.filled_base,
             filled_quote: order.filled_quote,
             filled_fee: order.filled_fee,
@@ -174,6 +190,14 @@ impl TryFrom<Order> for TradeOrder {
             taker_fee: order.taker_fee,
             create_time: order.create_time,
             update_time: order.update_time,
+            client_order_id: order.client_order_id,
+            post_only: order.post_only,
+            time_in_force: order
+                .time_in_force
+                .map(|tif| TimeInForce::from_str(&tif))
+                .transpose()
+                .map_err(|e| anyhow::anyhow!("Invalid TimeInForce: {}", e))?,
+            expires_at: order.expires_at,
         })
     }
 }

@@ -27,7 +27,6 @@ pub trait Persistence: Send + Sync + Clone + Debug {
     // Order operations
     fn create_order(&self, order_data: NewOrder) -> Result<Order>;
 
-
     // Trade operations
     fn create_trade(&self, trade_data: NewTrade) -> Result<Trade>;
     fn create_trades(&self, trades_data: Vec<NewTrade>) -> Result<Vec<Trade>>;
@@ -38,7 +37,7 @@ pub trait Persistence: Send + Sync + Clone + Debug {
         user_id: &str,
         asset: &str,
         available_delta: BigDecimal,
-        frozen_delta: BigDecimal,
+        locked_delta: BigDecimal,
     ) -> Result<Balance>;
 
     // Market stats operations
@@ -57,7 +56,7 @@ pub trait Persistence: Send + Sync + Clone + Debug {
     fn get_active_orders(&self, market_id: &str) -> Result<Vec<Order>>;
     fn get_all_active_orders(&self) -> Result<Vec<Order>>;
     fn get_user_active_orders_count(&self, market_id: &str, user_id: &str) -> Result<Vec<Order>>;
-    fn execute_trade(
+    fn execute_limit_trade(
         &self,
         is_buyer_taker: bool,
         market_id: String,
@@ -68,8 +67,8 @@ pub trait Persistence: Send + Sync + Clone + Debug {
         buyer_order_id: String,
         seller_order_id: String,
         price: BigDecimal,
-        amount: BigDecimal,
-        quote_amount: BigDecimal,
+        base_amount: BigDecimal,
+        trade_quote_amount: BigDecimal,
         buyer_fee: BigDecimal,
         seller_fee: BigDecimal,
     ) -> Result<NewTrade>;

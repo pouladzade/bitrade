@@ -140,7 +140,7 @@ impl Persistence for ThreadSafePersistence {
         user_id: &str,
         asset: &str,
         available_delta: bigdecimal::BigDecimal,
-        frozen_delta: bigdecimal::BigDecimal,
+        locked_delta: bigdecimal::BigDecimal,
     ) -> Result<Balance> {
         let _lock = self
             .write_lock
@@ -148,7 +148,7 @@ impl Persistence for ThreadSafePersistence {
             .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
         info!("Updating balance for user: {}, asset: {}", user_id, asset);
         self.repository
-            .update_or_create_balance(user_id, asset, available_delta, frozen_delta)
+            .update_or_create_balance(user_id, asset, available_delta, locked_delta)
     }
 
     // Market stats operations
@@ -175,7 +175,7 @@ impl Persistence for ThreadSafePersistence {
             last_price,
         )
     }
-    fn execute_trade(
+    fn execute_limit_trade(
         &self,
         is_buyer_taker: bool,
         market_id: String,
@@ -186,8 +186,8 @@ impl Persistence for ThreadSafePersistence {
         buyer_order_id: String,
         seller_order_id: String,
         price: BigDecimal,
-        amount: BigDecimal,
-        quote_amount: BigDecimal,
+        base_amount: BigDecimal,
+        trade_quote_amount: BigDecimal,
         buyer_fee: BigDecimal,
         seller_fee: BigDecimal,
     ) -> Result<NewTrade> {
@@ -195,7 +195,7 @@ impl Persistence for ThreadSafePersistence {
             .write_lock
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        self.repository.execute_trade(
+        self.repository.execute_limit_trade(
             is_buyer_taker,
             market_id,
             base_asset,
@@ -205,8 +205,8 @@ impl Persistence for ThreadSafePersistence {
             buyer_order_id,
             seller_order_id,
             price,
-            amount,
-            quote_amount,
+            base_amount,
+            trade_quote_amount,
             buyer_fee,
             seller_fee,
         )

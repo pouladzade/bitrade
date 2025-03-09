@@ -113,6 +113,33 @@ impl OrderStatus {
     }
 }
 
+// Add TimeInForce enum
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TimeInForce {
+    GTC, // Good Till Cancelled
+    IOC, // Immediate Or Cancel
+    FOK, // Fill Or Kill
+}
+
+impl TimeInForce {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TimeInForce::GTC => "GTC",
+            TimeInForce::IOC => "IOC",
+            TimeInForce::FOK => "FOK",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s.to_uppercase().as_str() {
+            "GTC" => Ok(TimeInForce::GTC),
+            "IOC" => Ok(TimeInForce::IOC),
+            "FOK" => Ok(TimeInForce::FOK),
+            _ => Err(format!("Unknown time in force: {}", s)),
+        }
+    }
+}
+
 // Market model
 #[derive(Debug, Clone, Queryable, Identifiable, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = markets)]
@@ -124,6 +151,21 @@ pub struct Market {
     pub default_taker_fee: BigDecimal,
     pub create_time: i64,
     pub update_time: i64,
+    pub status: String,
+    pub min_base_amount: BigDecimal,
+    pub min_quote_amount: BigDecimal,
+    pub price_precision: i32,
+    pub amount_precision: i32,
+}
+
+impl Market {
+    pub fn get_status(&self) -> Result<MarketStatus, String> {
+        match self.status.as_str() {
+            "ACTIVE" => Ok(MarketStatus::Active),
+            "CLOSED" => Ok(MarketStatus::Closed),
+            _ => Err(format!("Unknown market status: {}", self.status)),
+        }
+    }
 }
 
 // New Market for insertion
@@ -137,6 +179,11 @@ pub struct NewMarket {
     pub default_taker_fee: BigDecimal,
     pub create_time: i64,
     pub update_time: i64,
+    pub status: String,
+    pub min_base_amount: BigDecimal,
+    pub min_quote_amount: BigDecimal,
+    pub price_precision: i32,
+    pub amount_precision: i32,
 }
 
 // Order model
@@ -150,16 +197,22 @@ pub struct Order {
     pub order_type: String, // Will be converted to/from OrderType enum
     pub side: String,       // Will be converted to/from OrderSide enum
     pub price: BigDecimal,
-    pub amount: BigDecimal,
+    pub base_amount: BigDecimal,
+    pub quote_amount: BigDecimal,
     pub maker_fee: BigDecimal,
     pub taker_fee: BigDecimal,
     pub create_time: i64,
-    pub remain: BigDecimal,
+    pub remained_base: BigDecimal,
+    pub remained_quote: BigDecimal,
     pub filled_base: BigDecimal,
     pub filled_quote: BigDecimal,
     pub filled_fee: BigDecimal,
     pub update_time: i64,
     pub status: String, // Will be converted to/from OrderStatus enum
+    pub client_order_id: Option<String>,
+    pub post_only: Option<bool>,
+    pub time_in_force: Option<String>,
+    pub expires_at: Option<i64>,
 }
 
 // Helper methods to work with enums
@@ -187,16 +240,22 @@ pub struct NewOrder {
     pub order_type: String,
     pub side: String,
     pub price: BigDecimal,
-    pub amount: BigDecimal,
+    pub base_amount: BigDecimal,
+    pub quote_amount: BigDecimal,
     pub maker_fee: BigDecimal,
     pub taker_fee: BigDecimal,
     pub create_time: i64,
-    pub remain: BigDecimal,
+    pub remained_base: BigDecimal,
+    pub remained_quote: BigDecimal,
     pub filled_base: BigDecimal,
     pub filled_quote: BigDecimal,
     pub filled_fee: BigDecimal,
     pub update_time: i64,
     pub status: String,
+    pub client_order_id: Option<String>,
+    pub post_only: Option<bool>,
+    pub time_in_force: Option<String>,
+    pub expires_at: Option<i64>,
 }
 
 // Trade model
@@ -208,14 +267,16 @@ pub struct Trade {
     pub timestamp: i64,
     pub market_id: String,
     pub price: BigDecimal,
-    pub amount: BigDecimal,
+    pub base_amount: BigDecimal,
     pub quote_amount: BigDecimal,
-    pub taker_user_id: String,
-    pub taker_order_id: String,
-    pub taker_fee: BigDecimal,
-    pub maker_user_id: String,
-    pub maker_order_id: String,
-    pub maker_fee: BigDecimal,
+    pub buyer_user_id: String,
+    pub buyer_order_id: String,
+    pub buyer_fee: BigDecimal,
+    pub seller_user_id: String,
+    pub seller_order_id: String,
+    pub seller_fee: BigDecimal,
+    pub taker_side: String,
+    pub is_liquidation: Option<bool>,
 }
 
 // New Trade for insertion
@@ -226,15 +287,31 @@ pub struct NewTrade {
     pub timestamp: i64,
     pub market_id: String,
     pub price: BigDecimal,
-    pub amount: BigDecimal,
+    pub base_amount: BigDecimal,
     pub quote_amount: BigDecimal,
-    pub taker_user_id: String,
-    pub taker_order_id: String,
+    pub buyer_user_id: String,
+    pub buyer_order_id: String,
+    pub buyer_fee: BigDecimal,
+    pub seller_user_id: String,
+    pub seller_order_id: String,
+    pub seller_fee: BigDecimal,
+    pub taker_side: String,
+    pub is_liquidation: Option<bool>,
+}
 
-    pub taker_fee: BigDecimal,
-    pub maker_user_id: String,
-    pub maker_order_id: String,
-    pub maker_fee: BigDecimal,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MarketStatus {
+    Active,
+    Closed, // Market is closed and no longer accepting orders
+}
+
+impl MarketStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MarketStatus::Active => "ACTIVE",
+            MarketStatus::Closed => "CLOSED",
+        }
+    }
 }
 
 // Balance model
@@ -245,8 +322,11 @@ pub struct Balance {
     pub user_id: String,
     pub asset: String,
     pub available: BigDecimal,
-    pub frozen: BigDecimal,
+    pub locked: BigDecimal,
     pub update_time: i64,
+    pub reserved: BigDecimal,
+    pub total_deposited: BigDecimal,
+    pub total_withdrawn: BigDecimal,
 }
 
 // New Balance for insertion
@@ -256,8 +336,11 @@ pub struct NewBalance {
     pub user_id: String,
     pub asset: String,
     pub available: BigDecimal,
-    pub frozen: BigDecimal,
+    pub locked: BigDecimal,
     pub update_time: i64,
+    pub reserved: BigDecimal,
+    pub total_deposited: BigDecimal,
+    pub total_withdrawn: BigDecimal,
 }
 
 // Market Stats model

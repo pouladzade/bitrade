@@ -4,8 +4,9 @@ use crate::models::{
     trade_order::{OrderSide, OrderType, TradeOrder},
 };
 use crate::utils;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use bigdecimal::{BigDecimal, Zero};
+use database::models::models::TimeInForce;
 use std::str::FromStr;
 use tonic::Status;
 
@@ -19,33 +20,25 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
         let side = OrderSide::try_from(req.side.as_str())
             .map_err(|e| Status::invalid_argument(format!("Invalid order side: {}", e)))?;
 
-        let mut price = BigDecimal::from_str(&req.price)
+        let price = BigDecimal::from_str(&req.price)
             .context("Failed to parse price as Decimal")
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-        // For market orders, we adjust the price to extreme values:
-        // - For a market buy order, we set the price to BigDecimal::MAX so that it matches
-        //   against the lowest available ask price.
-        // - For a market sell order, we set the price to BigDecimal::MIN so that it matches
-        //   against the highest available bid price.
-        // Note: The actual execution price will be determined during the matching process.
-        match (order_type, side) {
-            (OrderType::Market, OrderSide::Buy) => {
-                price = BigDecimal::from(u64::MAX);
-            }
-            (OrderType::Market, OrderSide::Sell) => {
-                price = BigDecimal::from(0);
-            }
-            _ => {}
-        }
-
-        let amount = BigDecimal::from_str(&req.amount)
-            .context("Failed to parse amount as Decimal")
+        let base_amount = BigDecimal::from_str(&req.base_amount)
+            .context("Failed to parse base amount as Decimal")
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-        let maker_fee = BigDecimal::zero();
+        let quote_amount = BigDecimal::from_str(&req.quote_amount)
+            .context("Failed to parse quote amount as Decimal")
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-        let taker_fee = BigDecimal::zero();
+        let maker_fee = BigDecimal::from_str(&req.maker_fee)
+            .context("Failed to parse maker fee as Decimal")
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        let taker_fee = BigDecimal::from_str(&req.taker_fee)
+            .context("Failed to parse taker fee as Decimal")
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         Ok(TradeOrder {
             id: utils::generate_uuid_id(),
@@ -54,16 +47,21 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
             side,
             user_id: req.user_id,
             price,
-            amount: amount.clone(),
+            base_amount: base_amount.clone(),
+            quote_amount: quote_amount.clone(),
             maker_fee,
             taker_fee,
             create_time: utils::get_utc_now_time_millisecond(),
-            remain: amount,
-
+            client_order_id: Some(utils::generate_uuid_id()),
+            expires_at: None,
+            post_only: Some(false),
+            remained_base: base_amount,
+            remained_quote: quote_amount,
             filled_base: BigDecimal::zero(),
             filled_quote: BigDecimal::zero(),
             filled_fee: BigDecimal::zero(),
             update_time: utils::get_utc_now_time_millisecond(),
+            time_in_force: Some(TimeInForce::GTC),
         })
     }
 }
@@ -76,39 +74,11 @@ impl From<TradeOrder> for AddOrderRequest {
             side: order.side.into(),
             user_id: order.user_id,
             price: order.price.to_string(),
-            amount: order.amount.to_string(),
+            base_amount: order.base_amount.to_string(),
+            quote_amount: order.quote_amount.to_string(),
             maker_fee: order.maker_fee.to_string(),
             taker_fee: order.taker_fee.to_string(),
         }
-    }
-}
-
-impl TryFrom<ProtoTrade> for MatchedTrade {
-    type Error = anyhow::Error;
-
-    fn try_from(proto: ProtoTrade) -> Result<Self> {
-        Ok(MatchedTrade {
-            id: proto.id,
-            timestamp: proto.timestamp,
-            market_id: proto.market_id,
-
-            price: BigDecimal::from_str(&proto.price)
-                .map_err(|e| anyhow!("Invalid price format: {}", e))?,
-            amount: BigDecimal::from_str(&proto.amount)
-                .map_err(|e| anyhow!("Invalid amount format: {}", e))?,
-            quote_amount: BigDecimal::from_str(&proto.quote_amount)
-                .map_err(|e| anyhow!("Invalid quote amount format: {}", e))?,
-            taker_user_id: proto.taker_user_id,
-            taker_order_id: proto.taker_order_id,
-
-            taker_fee: BigDecimal::from_str(&proto.taker_fee)
-                .map_err(|e| anyhow!("Invalid ask fee format: {}", e))?,
-            maker_user_id: proto.maker_user_id,
-            maker_order_id: proto.maker_order_id,
-
-            maker_fee: BigDecimal::from_str(&proto.maker_fee)
-                .map_err(|e| anyhow!("Invalid bid fee format: {}", e))?,
-        })
     }
 }
 
@@ -119,16 +89,16 @@ impl From<MatchedTrade> for ProtoTrade {
             timestamp: trade.timestamp,
             market_id: trade.market_id,
             price: trade.price.to_string(),
-            amount: trade.amount.to_string(),
+            base_amount: trade.base_amount.to_string(),
             quote_amount: trade.quote_amount.to_string(),
-            taker_user_id: trade.taker_user_id,
-            taker_order_id: trade.taker_order_id,
+            seller_user_id: trade.seller_user_id,
+            seller_order_id: trade.seller_order_id,
 
-            taker_fee: trade.taker_fee.to_string(),
-            maker_user_id: trade.maker_user_id,
-            maker_order_id: trade.maker_order_id,
+            seller_fee: trade.seller_fee.to_string(),
+            buyer_user_id: trade.buyer_user_id,
+            buyer_order_id: trade.buyer_order_id,
 
-            maker_fee: trade.maker_fee.to_string(),
+            buyer_fee: trade.buyer_fee.to_string(),
         }
     }
 }
@@ -140,14 +110,14 @@ impl From<&MatchedTrade> for ProtoTrade {
             timestamp: trade.timestamp,
             market_id: trade.market_id.clone(),
             price: trade.price.to_string(),
-            amount: trade.amount.to_string(),
+            base_amount: trade.base_amount.to_string(),
             quote_amount: trade.quote_amount.to_string(),
-            taker_user_id: trade.taker_user_id.clone(),
-            taker_order_id: trade.taker_order_id.clone(),
-            taker_fee: trade.taker_fee.to_string(),
-            maker_user_id: trade.maker_user_id.clone(),
-            maker_order_id: trade.maker_order_id.clone(),
-            maker_fee: trade.maker_fee.to_string(),
+            seller_user_id: trade.seller_user_id.clone(),
+            seller_order_id: trade.seller_order_id.clone(),
+            seller_fee: trade.seller_fee.to_string(),
+            buyer_user_id: trade.buyer_user_id.clone(),
+            buyer_order_id: trade.buyer_order_id.clone(),
+            buyer_fee: trade.buyer_fee.to_string(),
         }
     }
 }

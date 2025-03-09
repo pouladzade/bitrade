@@ -53,16 +53,16 @@ message ProtoTrade {
     string market_id = 3;
 
     string price = 6;
-    string amount = 7;
+    string base_amount = 7;
     string quote_amount = 8;
 
-    string taker_user_id = 9;
-    string taker_order_id = 10;
-    string taker_fee = 12;
+    string seller_user_id = 9;
+    string seller_order_id = 10;
+    string seller_fee = 12;
 
-    string maker_user_id = 13;
-    string maker_order_id = 14;
-    string maker_fee = 16;
+    string buyer_user_id = 13;
+    string buyer_order_id = 14;
+    string buyer_fee = 16;
 }
 message AddOrderResponse {
     string order_id = 1;
@@ -74,9 +74,10 @@ message AddOrderRequest {
   string side = 6;//BUY or SELL
   string user_id = 7;
   string price = 9;
-  string amount = 10;
-  string maker_fee = 11;
-  string taker_fee = 12;
+  string base_amount = 10;
+  string quote_amount = 11; 
+  string maker_fee = 12;
+  string taker_fee = 13;
 }
 
 

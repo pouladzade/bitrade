@@ -1,6 +1,7 @@
 use anyhow::Result;
 use crossbeam::channel;
 use database::persistence::persistence::Persistence;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -36,7 +37,7 @@ where
     market_id: String,
     base_asset: String,
     quote_asset: String,
-    started: Arc<Mutex<bool>>, // Track market status
+    started: Arc<AtomicBool>, // Track market status
 }
 
 impl<P: Persistence> Market<P> {
@@ -49,7 +50,7 @@ impl<P: Persistence> Market<P> {
         let (task_sender, task_receiver): (channel::Sender<Task<P>>, channel::Receiver<Task<P>>) =
             channel::unbounded();
 
-        let started = Arc::new(Mutex::new(false));
+        let started = Arc::new(AtomicBool::new(false));
 
         let persister_clone = Arc::clone(&persister);
         let started_clone = Arc::clone(&started);
@@ -64,10 +65,9 @@ impl<P: Persistence> Market<P> {
                 quote_asset_clone,
             );
             while let Ok(task) = task_receiver.recv() {
-                match started_clone.lock() {
-                    Ok(started) if *started => task(&mut order_book),
-                    Ok(_) => break, // Stop processing if market is stopped
-                    Err(_) => eprintln!("Failed to acquire market status lock"),
+                match started_clone.load(Ordering::SeqCst) {
+                    true => task(&mut order_book),
+                    false => break, // Stop processing if market is stopped
                 }
             }
         });
@@ -87,43 +87,34 @@ impl<P: Persistence> Market<P> {
     }
 
     pub fn start_market(&self) -> Result<()> {
-        let mut started = self
-            .started
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Failed to acquire lock to start market"))?;
-        if *started {
+        if self.started.load(Ordering::SeqCst) {
             return Err(MarketError::MarketAlreadyStarted.into());
         }
 
-        *started = true;
+        self.started.store(true, Ordering::SeqCst);
         println!("Market {} started", self.market_id);
         Ok(())
     }
 
     pub fn stop_market(&self) -> Result<()> {
-        let mut started = self
-            .started
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Failed to acquire lock to stop market"))?;
-        if !*started {
+        if !self.started.load(Ordering::SeqCst) {
             return Err(MarketError::MarketNotStarted.into());
         }
-        *started = false;
+        self.started.store(false, Ordering::SeqCst);
         println!("Market {} stopped", self.market_id);
         Ok(())
     }
 
     fn submit_task(&self, task: Task<P>) -> Result<()> {
-        let started = self
-            .started
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Failed to check market status"))?;
-        if *started {
-            self.task_sender
-                .send(task)
-                .map_err(|_| MarketError::TaskSendError.into())
+        if self.started.load(Ordering::SeqCst) {
+            self.task_sender.send(task).map_err(|_| {
+                anyhow::anyhow!("Failed to send task").context(MarketError::TaskSendError)
+            })
         } else {
-            Err(MarketError::MarketNotStarted.into())
+            Err(
+                anyhow::anyhow!("Cannot submit task while market is stopped")
+                    .context(MarketError::MarketNotStarted),
+            )
         }
     }
 

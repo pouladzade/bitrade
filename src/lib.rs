@@ -6,3 +6,4 @@ pub mod order_book;
 pub mod tests;
 pub mod utils;
 pub mod wallet;
+pub mod validation;
