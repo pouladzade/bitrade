@@ -1,22 +1,22 @@
 use anyhow::Result;
 use bigdecimal::BigDecimal;
-use log::{debug, info};
+use log::info;
 use std::sync::{Arc, Mutex};
 
 use crate::establish_connection_pool;
 use crate::models::models::*;
-use crate::repository::repository::Repository;
+use crate::repository::Repository;
 
-use super::persistence::Persistence;
-/// ThreadSafePersistence provides a thread-safe way to access the repository
+use super::Persistence;
+/// PostgresPersister provides a thread-safe way to access the repository
 /// for persisting entities to the database.
 ///
 #[derive(Debug, Clone)]
-pub struct ThreadSafePersistence {
+pub struct PostgresPersister {
     repository: Arc<Repository>,
     write_lock: Arc<Mutex<()>>,
 }
-impl ThreadSafePersistence {
+impl PostgresPersister {
     /// Create a new ThreadSafePersistence instance
     pub fn new(database_url: String, pool_size: u32) -> Self {
         let pool = establish_connection_pool(database_url, pool_size);
@@ -26,7 +26,7 @@ impl ThreadSafePersistence {
         }
     }
 }
-impl Persistence for ThreadSafePersistence {
+impl Persistence for PostgresPersister {
     // /// Clone this instance to share across threads
     // fn clone_for_thread(&self) -> Self {
     //     Self {
@@ -36,60 +36,60 @@ impl Persistence for ThreadSafePersistence {
     // }
 
     // Balance operations
-    fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Balance>> {
-        debug!("Getting balance for user: {}, asset: {}", user_id, asset);
-        self.repository.get_balance(user_id, asset)
+    fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Wallet>> {
+        self.repository.get_wallet(user_id, asset)
     }
 
     // Market operations
     fn get_market(&self, market_id: &str) -> Result<Option<Market>> {
-        debug!("Getting market with ID: {}", market_id);
         self.repository.get_market(market_id)
     }
 
     fn list_markets(&self) -> Result<Vec<Market>> {
-        debug!("Listing all markets");
         self.repository.list_markets()
     }
 
     // Order operations
     fn get_order(&self, order_id: &str) -> Result<Option<Order>> {
-        debug!("Getting order with ID: {}", order_id);
         self.repository.get_order(order_id)
     }
 
     fn get_open_orders_for_market(&self, market_id: &str) -> Result<Vec<Order>> {
-        debug!("Getting open orders for market: {}", market_id);
         self.repository.get_open_orders_for_market(market_id)
     }
 
     fn get_user_orders(&self, user_id: &str, limit: i64) -> Result<Vec<Order>> {
-        debug!("Getting orders for user: {} (limit: {})", user_id, limit);
         self.repository.get_user_orders(user_id, limit)
     }
 
+    //wallet operations
+    fn deposit_balance(&self, user_id: &str, asset: &str, amount: BigDecimal) -> Result<Wallet> {
+        self.repository.deposit_balance(user_id, asset, amount)
+    }
+    fn withdraw_balance(&self, user_id: &str, asset: &str, amount: BigDecimal) -> Result<Wallet> {
+        self.repository.withdraw_balance(user_id, asset, amount)
+    }
+    fn lock_balance(&self, user_id: &str, asset: &str, amount: BigDecimal) -> Result<Wallet> {
+        self.repository.lock_balance(user_id, asset, amount)
+    }
+    fn unlock_balance(&self, user_id: &str, asset: &str, amount: BigDecimal) -> Result<Wallet> {
+        self.repository.unlock_balance(user_id, asset, amount)
+    }
     // Trade operations
     fn get_trades_for_market(&self, market_id: &str, limit: i64) -> Result<Vec<Trade>> {
-        debug!(
-            "Getting trades for market: {} (limit: {})",
-            market_id, limit
-        );
         self.repository.get_trades_for_market(market_id, limit)
     }
 
     fn get_trades_for_order(&self, order_id: &str) -> Result<Vec<Trade>> {
-        debug!("Getting trades for order: {}", order_id);
         self.repository.get_trades_for_order(order_id)
     }
 
     fn get_user_trades(&self, user_id: &str, limit: i64) -> Result<Vec<Trade>> {
-        debug!("Getting trades for user: {} (limit: {})", user_id, limit);
         self.repository.get_user_trades(user_id, limit)
     }
 
     // Market stats operations
     fn get_market_stats(&self, market_id: &str) -> Result<Option<MarketStat>> {
-        debug!("Getting market stats for market: {}", market_id);
         self.repository.get_market_stats(market_id)
     }
 
@@ -113,42 +113,6 @@ impl Persistence for ThreadSafePersistence {
             .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
         info!("Creating new order: {}", order_data.id);
         self.repository.create_order(order_data)
-    }
-
-    // Trade operations
-    fn create_trade(&self, trade_data: NewTrade) -> Result<Trade> {
-        let _lock = self
-            .write_lock
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        info!("Creating new trade: {}", trade_data.id);
-        self.repository.create_trade(trade_data)
-    }
-
-    fn create_trades(&self, trades_data: Vec<NewTrade>) -> Result<Vec<Trade>> {
-        let _lock = self
-            .write_lock
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        info!("Creating {} new trades", trades_data.len());
-        self.repository.create_trades(trades_data)
-    }
-
-    // Balance operations
-    fn update_or_create_balance(
-        &self,
-        user_id: &str,
-        asset: &str,
-        available_delta: bigdecimal::BigDecimal,
-        locked_delta: bigdecimal::BigDecimal,
-    ) -> Result<Balance> {
-        let _lock = self
-            .write_lock
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        info!("Updating balance for user: {}, asset: {}", user_id, asset);
-        self.repository
-            .update_or_create_balance(user_id, asset, available_delta, locked_delta)
     }
 
     // Market stats operations
@@ -268,12 +232,9 @@ impl Persistence for ThreadSafePersistence {
             .write_lock
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock poisoned: {}", e))?;
-        debug!("Starting database transaction");
 
-        // Execute the operation with the lock held
         let result = operation();
 
-        debug!("Database transaction completed");
         result
     }
 }

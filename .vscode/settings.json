@@ -5,6 +5,7 @@
     "chrono",
     "Deque",
     "dotenv",
+    "Insertable",
     "matchengine",
     "prec",
     "prost",

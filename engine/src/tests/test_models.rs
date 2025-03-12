@@ -2,7 +2,10 @@ use std::{str::FromStr, sync::Arc};
 
 use bigdecimal::BigDecimal;
 use chrono::Utc;
-use database::{mock::mock_thread_safe_persistence::MockThreadSafePersistence, models::models::TimeInForce};
+use common::utils::get_uuid_string;
+use database::{
+    mock::mock_persister::MockPersister, models::models::{OrderStatus, TimeInForce},
+};
 
 use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
 
@@ -21,8 +24,7 @@ pub fn create_order(
     };
 
     TradeOrder {
-        id: uuid::Uuid::new_v4().to_string(),
-
+        id: get_uuid_string(),
         market_id,
         order_type,
         side,
@@ -43,9 +45,10 @@ pub fn create_order(
         expires_at: Some(Utc::now().timestamp_millis() + 1000 * 60 * 60 * 24),
         post_only: Some(false),
         time_in_force: Some(TimeInForce::GTC),
-    }   
+        status: OrderStatus::Open,
+    }
 }
 
-pub fn create_persistence_mock() -> Arc<MockThreadSafePersistence> {
-    Arc::new(MockThreadSafePersistence::new())
+pub fn create_persistence_mock() -> Arc<MockPersister> {
+    Arc::new(MockPersister::new())
 }

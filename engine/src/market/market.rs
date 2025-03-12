@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossbeam::channel;
-use database::persistence::persistence::Persistence;
+use database::persistence::Persistence;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;

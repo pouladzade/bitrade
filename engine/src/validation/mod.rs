@@ -1,19 +1,10 @@
 use crate::grpc::spot::{AddOrderRequest, CreateMarketRequest, DepositRequest, WithdrawRequest};
 use anyhow::{anyhow, Context, Result};
 use bigdecimal::BigDecimal;
+use common::utils::validate_positive_decimal;
 use std::str::FromStr;
 
-/// Validates that a string represents a positive non-zero BigDecimal
-pub fn validate_positive_decimal(value: &str, field_name: &str) -> Result<BigDecimal> {
-    let decimal = BigDecimal::from_str(value)
-        .context(format!("Failed to parse {} as decimal", field_name))?;
 
-    if decimal <= BigDecimal::from(0) {
-        return Err(anyhow!("{} must be greater than zero", field_name));
-    }
-
-    Ok(decimal)
-}
 
 pub fn validate_add_order_request(req: &AddOrderRequest) -> Result<()> {
     // Validate price is positive
@@ -75,5 +66,3 @@ pub fn validate_create_market_request(req: &CreateMarketRequest) -> Result<()> {
 
     Ok(())
 }
-
-// Add more validation functions for other request types as needed

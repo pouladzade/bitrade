@@ -11,7 +11,7 @@ DROP INDEX IF EXISTS idx_open_orders;
 
 -- Drop tables in reverse order of creation
 DROP TABLE IF EXISTS trades;
-DROP TABLE IF EXISTS balances;
+DROP TABLE IF EXISTS Wallets;
 DROP TABLE IF EXISTS market_stats;
 DROP TABLE IF EXISTS fee_treasury;
 DROP TABLE IF EXISTS orders;

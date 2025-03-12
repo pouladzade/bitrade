@@ -1,29 +1,13 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    balances (user_id, asset) {
-        #[max_length = 50]
-        user_id -> Varchar,
-        #[max_length = 20]
-        asset -> Varchar,
-        available -> Numeric,
-        locked -> Numeric,
-        update_time -> Int8,
-        reserved -> Numeric,
-        total_deposited -> Numeric,
-        total_withdrawn -> Numeric,
-    }
-}
-
-diesel::table! {
-    fee_treasury (id) {
-        id -> Int4,
-        #[max_length = 100]
-        treasury_address -> Varchar,
-        #[max_length = 50]
+    fee_treasury (market_id, asset) {
+        #[max_length = 36]
         market_id -> Varchar,
         #[max_length = 20]
         asset -> Varchar,
+        #[max_length = 100]
+        treasury_address -> Varchar,
         collected_amount -> Numeric,
         last_update_time -> Int8,
     }
@@ -31,7 +15,7 @@ diesel::table! {
 
 diesel::table! {
     market_stats (market_id) {
-        #[max_length = 50]
+        #[max_length = 36]
         market_id -> Varchar,
         high_24h -> Numeric,
         low_24h -> Numeric,
@@ -44,7 +28,7 @@ diesel::table! {
 
 diesel::table! {
     markets (id) {
-        #[max_length = 50]
+        #[max_length = 36]
         id -> Varchar,
         #[max_length = 20]
         base_asset -> Varchar,
@@ -65,11 +49,11 @@ diesel::table! {
 
 diesel::table! {
     orders (id) {
-        #[max_length = 50]
+        #[max_length = 36]
         id -> Varchar,
-        #[max_length = 50]
+        #[max_length = 36]
         market_id -> Varchar,
-        #[max_length = 50]
+        #[max_length = 36]
         user_id -> Varchar,
         #[max_length = 20]
         order_type -> Varchar,
@@ -100,27 +84,42 @@ diesel::table! {
 
 diesel::table! {
     trades (id) {
-        #[max_length = 50]
+        #[max_length = 36]
         id -> Varchar,
         timestamp -> Int8,
-        #[max_length = 50]
+        #[max_length = 36]
         market_id -> Varchar,
         price -> Numeric,
         base_amount -> Numeric,
         quote_amount -> Numeric,
-        #[max_length = 50]
+        #[max_length = 36]
         buyer_user_id -> Varchar,
-        #[max_length = 50]
+        #[max_length = 36]
         buyer_order_id -> Varchar,
         buyer_fee -> Numeric,
-        #[max_length = 50]
+        #[max_length = 36]
         seller_user_id -> Varchar,
-        #[max_length = 50]
+        #[max_length = 36]
         seller_order_id -> Varchar,
         seller_fee -> Numeric,
         #[max_length = 10]
         taker_side -> Varchar,
         is_liquidation -> Nullable<Bool>,
+    }
+}
+
+diesel::table! {
+    wallets (user_id, asset) {
+        #[max_length = 36]
+        user_id -> Varchar,
+        #[max_length = 20]
+        asset -> Varchar,
+        available -> Numeric,
+        locked -> Numeric,
+        update_time -> Int8,
+        reserved -> Numeric,
+        total_deposited -> Numeric,
+        total_withdrawn -> Numeric,
     }
 }
 
@@ -130,10 +129,10 @@ diesel::joinable!(orders -> markets (market_id));
 diesel::joinable!(trades -> markets (market_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    balances,
     fee_treasury,
     market_stats,
     markets,
     orders,
     trades,
+    wallets,
 );

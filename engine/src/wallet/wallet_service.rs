@@ -1,21 +1,21 @@
 use anyhow::{Context, Result};
 use bigdecimal::BigDecimal;
-use database::persistence::thread_safe_persistence::ThreadSafePersistence;
+use database::persistence::postgres_persister::PostgresPersister;
 
-use database::models::models::Balance;
-use database::persistence::persistence::Persistence;
+use database::models::models::Wallet;
+use database::persistence::Persistence;
 
 #[derive(Debug, Clone)]
-pub struct Wallet {
-    persister: ThreadSafePersistence,
+pub struct WalletService {
+    persister: PostgresPersister,
 }
 
-impl Wallet {
+impl WalletService {
     /// Create a new wallet for a specific user
     pub fn new() -> Self {
         let database_url = "postgres://postgres:mysecretpassword@localhost/postgres";
         let pool_size = 10;
-        let persister = ThreadSafePersistence::new(database_url.to_string(), pool_size);
+        let persister = PostgresPersister::new(database_url.to_string(), pool_size);
         Self { persister }
     }
 
@@ -44,81 +44,55 @@ impl Wallet {
     }
 
     /// Add balance to a specific asset
-    pub fn deposit(&self, asset: &str, amount: BigDecimal, user_id: &str) -> Result<Balance> {
+    pub fn deposit(&self, asset: &str, amount: BigDecimal, user_id: &str) -> Result<Wallet> {
         if amount <= BigDecimal::from(0) {
             return Err(anyhow::anyhow!("Cannot add non-positive balance"));
         }
 
         self.persister
-            .update_or_create_balance(
-                &user_id,
-                asset,
-                amount.clone(),      // Available delta
-                BigDecimal::from(0), // Frozen delta
-            )
+            .deposit_balance(&user_id, asset, amount.clone())
             .context("Failed to add balance")
     }
 
     /// Freeze balance for a specific asset
-    pub fn freeze_balance(
-        &self,
-        asset: &str,
-        amount: BigDecimal,
-        user_id: &str,
-    ) -> Result<Balance> {
+    pub fn lock_balance(&self, asset: &str, amount: BigDecimal, user_id: &str) -> Result<Wallet> {
         if amount <= BigDecimal::from(0) {
             return Err(anyhow::anyhow!("Cannot freeze non-positive balance"));
         }
 
         self.persister
-            .update_or_create_balance(
-                &user_id,
-                asset,
-                -amount.clone(), // Reduce available
-                amount,          // Increase frozen
-            )
+            .lock_balance(&user_id, asset, amount)
             .context("Failed to freeze balance")
     }
 
     /// Unfreeze balance for a specific asset
-    pub fn unfreeze_balance(
-        &self,
-        asset: &str,
-        amount: BigDecimal,
-        user_id: &str,
-    ) -> Result<Balance> {
+    pub fn unlock_balance(&self, asset: &str, amount: BigDecimal, user_id: &str) -> Result<Wallet> {
         if amount <= BigDecimal::from(0) {
             return Err(anyhow::anyhow!("Cannot unfreeze non-positive balance"));
         }
 
         self.persister
-            .update_or_create_balance(
-                &user_id,
-                asset,
-                amount.clone(), // Increase available
-                -amount,        // Reduce frozen
-            )
+            .unlock_balance(&user_id, asset, amount.clone())
             .context("Failed to unfreeze balance")
     }
 
     /// Withdraw balance from a specific asset
-    pub fn withdraw(&self, asset: &str, amount: BigDecimal, user_id: &str) -> Result<Balance> {
+    pub fn withdraw(&self, asset: &str, amount: BigDecimal, user_id: &str) -> Result<Wallet> {
         if amount <= BigDecimal::from(0) {
             return Err(anyhow::anyhow!("Cannot withdraw non-positive amount"));
         }
 
         self.persister
-            .update_or_create_balance(
+            .withdraw_balance(
                 &user_id,
                 asset,
-                -amount.clone(),     // Reduce available
-                BigDecimal::from(0), // No change in frozen
+                amount.clone(), // Reduce available
             )
             .context("Failed to withdraw balance")
     }
 
     /// Get all balances for the user
-    pub fn get_all_balances(&self) -> Result<Vec<Balance>> {
+    pub fn get_all_balances(&self) -> Result<Vec<Wallet>> {
         // Note: This method assumes you might want to add a method to Repository
         // to fetch all balances for a user if it doesn't already exist
         unimplemented!("Implement method to fetch all balances for a user")

@@ -1,0 +1,258 @@
+syntax = "proto3";
+package exchange.v1;
+
+service QueryService {
+  // Market queries
+  rpc GetMarket(GetMarketRequest) returns (GetMarketResponse);
+  rpc ListMarkets(ListMarketsRequest) returns (ListMarketsResponse);
+  
+  // Order queries
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  rpc GetUserOrders(GetUserOrdersRequest) returns (GetUserOrdersResponse);
+  
+  // Trade queries
+  rpc GetTrade(GetTradeRequest) returns (GetTradeResponse);
+  rpc ListTrades(ListTradesRequest) returns (ListTradesResponse);
+  rpc GetUserTrades(GetUserTradesRequest) returns (GetUserTradesResponse);
+  
+  // Balance queries
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+  rpc ListBalances(ListBalancesRequest) returns (ListBalancesResponse);
+  
+  // Market stats
+  rpc GetMarketStats(GetMarketStatsRequest) returns (GetMarketStatsResponse);
+  
+  // Fee treasury
+  rpc GetFeeTreasury(GetFeeTreasuryRequest) returns (GetFeeTreasuryResponse);
+}
+
+// Market messages
+message Market {
+  string id = 1;
+  string base_asset = 2;
+  string quote_asset = 3;
+  string default_maker_fee = 4;
+  string default_taker_fee = 5;
+  int64 create_time = 6;
+  int64 update_time = 7;
+  string status = 8;
+  string min_base_amount = 9;
+  string min_quote_amount = 10;
+  int32 price_precision = 11;
+  int32 amount_precision = 12;
+}
+
+message GetMarketRequest {
+  string market_id = 1;
+}
+
+message GetMarketResponse {
+  Market market = 1;
+}
+
+message ListMarketsRequest {
+  string status = 1; // Optional filter
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListMarketsResponse {
+  repeated Market markets = 1;
+  string next_page_token = 2;
+}
+
+// Order messages
+message Order {
+  string id = 1;
+  string market_id = 2;
+  string user_id = 3;
+  string order_type = 4;
+  string side = 5;
+  string price = 6;
+  string base_amount = 7;
+  string quote_amount = 8;
+  string maker_fee = 9;
+  string taker_fee = 10;
+  int64 create_time = 11;
+  string remained_base = 12;
+  string remained_quote = 13;
+  string filled_base = 14;
+  string filled_quote = 15;
+  string filled_fee = 16;
+  int64 update_time = 17;
+  string status = 18;
+  string client_order_id = 19;
+  bool post_only = 20;
+  string time_in_force = 21;
+  int64 expires_at = 22;
+}
+
+// Order messages
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message GetOrderResponse {
+  Order order = 1;
+}
+
+message ListOrdersRequest {
+  string market_id = 1;
+  optional string status = 2;
+  optional string side = 3;
+  int32 page_size = 4;
+  string page_token = 5;
+}
+
+message ListOrdersResponse {
+  repeated Order orders = 1;
+  string next_page_token = 2;
+}
+
+message GetUserOrdersRequest {
+  string user_id = 1;
+  optional string market_id = 2;
+  optional string status = 3;
+  optional string side = 4;
+  int32 page_size = 5;
+  string page_token = 6;
+}
+
+message GetUserOrdersResponse {
+  repeated Order orders = 1;
+  string next_page_token = 2;
+}
+
+// Trade messages
+message Trade {
+  string id = 1;
+  int64 timestamp = 2;
+  string market_id = 3;
+  string price = 4;
+  string base_amount = 5;
+  string quote_amount = 6;
+  string buyer_user_id = 7;
+  string buyer_order_id = 8;
+  string buyer_fee = 9;
+  string seller_user_id = 10;
+  string seller_order_id = 11;
+  string seller_fee = 12;
+  string taker_side = 13;
+  bool is_liquidation = 14;
+}
+
+message GetTradeRequest {
+  string trade_id = 1;
+}
+
+message GetTradeResponse {
+  Trade trade = 1;
+}
+
+message ListTradesRequest {
+  string market_id = 1;
+  int64 start_time = 2;
+  int64 end_time = 3;
+  int32 page_size = 4;
+  string page_token = 5;
+}
+
+message ListTradesResponse {
+  repeated Trade trades = 1;
+  string next_page_token = 2;
+}
+
+message GetUserTradesRequest {
+  string user_id = 1;
+  string market_id = 2; // Optional
+  int64 start_time = 3;
+  int64 end_time = 4;
+  int32 page_size = 5;
+  string page_token = 6;
+}
+
+message GetUserTradesResponse {
+  repeated Trade trades = 1;
+  string next_page_token = 2;
+}
+
+// Balance messages
+message Balance {
+  string user_id = 1;
+  string asset = 2;
+  string available = 3;
+  string locked = 4;
+  string reserved = 5;
+  string total_deposited = 6;
+  string total_withdrawn = 7;
+  int64 update_time = 8;
+}
+
+message GetBalanceRequest {
+  string user_id = 1;
+  string asset = 2;
+}
+
+message GetBalanceResponse {
+  Balance balance = 1;
+}
+
+message ListBalancesRequest {
+  string user_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListBalancesResponse {
+  repeated Balance balances = 1;
+  string next_page_token = 2;
+}
+
+// Market stats messages
+message MarketStats {
+  string market_id = 1;
+  string high_24h = 2;
+  string low_24h = 3;
+  string volume_24h = 4;
+  string price_change_24h = 5;
+  string last_price = 6;
+  int64 last_update_time = 7;
+}
+
+message GetMarketStatsRequest {
+  string market_id = 1;
+}
+
+message GetMarketStatsResponse {
+  MarketStats stats = 1;
+}
+
+// Fee treasury messages
+message FeeTreasury {
+  int32 id = 1;
+  string treasury_address = 2;
+  string market_id = 3;
+  string asset = 4;
+  string collected_amount = 5;
+  int64 last_update_time = 6;
+}
+
+message GetFeeTreasuryRequest {
+  string market_id = 1;
+  string asset = 2;
+}
+
+message GetFeeTreasuryResponse {
+  FeeTreasury treasury = 1;
+}
+
+// Common pagination message that can be embedded in responses
+message PageInfo {
+  int32 total_items = 1;
+  int32 total_pages = 2;
+  int32 current_page = 3;
+  int32 items_per_page = 4;
+  bool has_next_page = 5;
+  string next_page_token = 6;
+} 

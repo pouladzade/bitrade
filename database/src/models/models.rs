@@ -1,18 +1,13 @@
-// models.rs
-// Diesel ORM models corresponding to database tables
-
 use bigdecimal::BigDecimal;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::schema::*;
+use crate::models::schema::*;
 
-// Represents the OrderType enum in your application
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OrderType {
     Limit,
     Market,
-    // Add other order types as needed
 }
 
 impl OrderType {
@@ -80,7 +75,6 @@ impl MarketRole {
     }
 }
 
-// Represents the OrderStatus enum
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OrderStatus {
     Open,
@@ -93,7 +87,7 @@ pub enum OrderStatus {
 impl OrderStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            OrderStatus::Open => "Open",
+            OrderStatus::Open => "OPEN",
             OrderStatus::Filled => "FILLED",
             OrderStatus::Canceled => "CANCELED",
             OrderStatus::Rejected => "REJECTED",
@@ -110,6 +104,14 @@ impl OrderStatus {
             "PARTIALLY_FILLED" => Ok(OrderStatus::PartiallyFilled),
             _ => Err(format!("Unknown order status: {}", s)),
         }
+    }
+}
+
+impl TryFrom<&str> for OrderStatus {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::from_str(value)
     }
 }
 
@@ -141,10 +143,10 @@ impl TimeInForce {
 }
 
 // Market model
-#[derive(Debug, Clone, Queryable, Identifiable, Insertable, Serialize, Deserialize)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = markets)]
 pub struct Market {
-    pub id: String,
+    pub id: String, // UUID as String
     pub base_asset: String,
     pub quote_asset: String,
     pub default_maker_fee: BigDecimal,
@@ -187,7 +189,7 @@ pub struct NewMarket {
 }
 
 // Order model
-#[derive(Debug, Clone, Queryable, Identifiable, Associations, Serialize, Deserialize)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(belongs_to(Market))]
 #[diesel(table_name = orders)]
 pub struct Order {
@@ -232,6 +234,7 @@ impl Order {
 
 // New Order for insertion
 #[derive(Debug, Clone, Insertable, Serialize, Deserialize)]
+#[diesel(belongs_to(Market))]
 #[diesel(table_name = orders)]
 pub struct NewOrder {
     pub id: String,
@@ -259,7 +262,7 @@ pub struct NewOrder {
 }
 
 // Trade model
-#[derive(Debug, Clone, Queryable, Identifiable, Associations, Serialize, Deserialize)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(belongs_to(Market))]
 #[diesel(table_name = trades)]
 pub struct Trade {
@@ -281,6 +284,7 @@ pub struct Trade {
 
 // New Trade for insertion
 #[derive(Debug, Clone, Insertable, Serialize, Deserialize)]
+#[diesel(belongs_to(Market))]
 #[diesel(table_name = trades)]
 pub struct NewTrade {
     pub id: String,
@@ -315,10 +319,10 @@ impl MarketStatus {
 }
 
 // Balance model
-#[derive(Debug, Clone, Queryable, Identifiable, Serialize, Deserialize)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(primary_key(user_id, asset))]
-#[diesel(table_name = balances)]
-pub struct Balance {
+#[diesel(table_name = wallets)]
+pub struct Wallet {
     pub user_id: String,
     pub asset: String,
     pub available: BigDecimal,
@@ -331,8 +335,8 @@ pub struct Balance {
 
 // New Balance for insertion
 #[derive(Debug, Clone, Insertable, Serialize, Deserialize)]
-#[diesel(table_name = balances)]
-pub struct NewBalance {
+#[diesel(table_name = wallets)]
+pub struct NewWallet {
     pub user_id: String,
     pub asset: String,
     pub available: BigDecimal,
@@ -344,9 +348,8 @@ pub struct NewBalance {
 }
 
 // Market Stats model
-#[derive(Debug, Clone, Queryable, Identifiable, Associations, Serialize, Deserialize)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(belongs_to(Market))]
-#[diesel(primary_key(market_id))]
 #[diesel(table_name = market_stats)]
 pub struct MarketStat {
     pub market_id: String,
@@ -358,7 +361,6 @@ pub struct MarketStat {
     pub last_update_time: i64,
 }
 
-// New Market Stats for insertion
 #[derive(Debug, Clone, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = market_stats)]
 pub struct NewMarketStat {
@@ -368,5 +370,17 @@ pub struct NewMarketStat {
     pub volume_24h: BigDecimal,
     pub price_change_24h: BigDecimal,
     pub last_price: BigDecimal,
+    pub last_update_time: i64,
+}
+// Fee Treasury model
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
+#[diesel(belongs_to(Market))]
+#[diesel(primary_key(market_id, asset))]
+#[diesel(table_name = fee_treasury)]
+pub struct FeeTreasury {
+    pub market_id: String,
+    pub asset: String,
+    pub treasury_address: String,
+    pub collected_amount: BigDecimal,
     pub last_update_time: i64,
 }

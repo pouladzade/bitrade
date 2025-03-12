@@ -5,17 +5,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::models::models::*;
-use crate::persistence::persistence::Persistence;
+use crate::persistence::Persistence;
 #[derive(Debug, Clone)]
-pub struct MockThreadSafePersistence {
+pub struct MockPersister {
     markets: Arc<Mutex<HashMap<String, Market>>>,
     orders: Arc<Mutex<HashMap<String, Order>>>,
-    balances: Arc<Mutex<HashMap<(String, String), Balance>>>,
+    balances: Arc<Mutex<HashMap<(String, String), Wallet>>>,
     trades: Arc<Mutex<HashMap<String, Trade>>>,
     market_stats: Arc<Mutex<HashMap<String, MarketStat>>>,
 }
 
-impl MockThreadSafePersistence {
+impl MockPersister {
     pub fn new() -> Self {
         Self {
             markets: Arc::new(Mutex::new(HashMap::new())),
@@ -37,7 +37,7 @@ impl MockThreadSafePersistence {
         self.orders.lock().unwrap().insert(order.id.clone(), order);
     }
 
-    pub fn insert_balance(&self, balance: Balance) {
+    pub fn insert_balance(&self, balance: Wallet) {
         self.balances
             .lock()
             .unwrap()
@@ -69,7 +69,7 @@ impl MockThreadSafePersistence {
     }
 }
 
-impl Persistence for MockThreadSafePersistence {
+impl Persistence for MockPersister {
     fn get_market(&self, market_id: &str) -> Result<Option<Market>> {
         Ok(self.markets.lock().unwrap().get(market_id).cloned())
     }
@@ -105,7 +105,7 @@ impl Persistence for MockThreadSafePersistence {
         Ok(orders)
     }
 
-    fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Balance>> {
+    fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Wallet>> {
         Ok(self
             .balances
             .lock()
@@ -149,7 +149,7 @@ impl Persistence for MockThreadSafePersistence {
         let trades = self.trades.lock().unwrap();
         let mut result: Vec<Trade> = trades
             .values()
-                .filter(|t| t.buyer_user_id == user_id || t.seller_user_id == user_id)
+            .filter(|t| t.buyer_user_id == user_id || t.seller_user_id == user_id)
             .cloned()
             .collect();
 
@@ -191,6 +191,19 @@ impl Persistence for MockThreadSafePersistence {
         Ok(market)
     }
 
+    //wallet operations
+    fn deposit_balance(&self, user_id: &str, asset: &str, amount: BigDecimal) -> Result<Wallet> {
+        unimplemented!()
+    }
+    fn withdraw_balance(&self, user_id: &str, asset: &str, amount: BigDecimal) -> Result<Wallet> {
+        unimplemented!()
+    }
+    fn lock_balance(&self, user_id: &str, asset: &str, amount: BigDecimal) -> Result<Wallet> {
+        unimplemented!()
+    }
+    fn unlock_balance(&self, user_id: &str, asset: &str, amount: BigDecimal) -> Result<Wallet> {
+        unimplemented!()
+    }
     // Order operations
     fn create_order(&self, order_data: NewOrder) -> Result<Order> {
         let order = Order {
@@ -220,75 +233,6 @@ impl Persistence for MockThreadSafePersistence {
 
         self.insert_order(order.clone());
         Ok(order)
-    }
-
-    // Trade operations
-    fn create_trade(&self, trade_data: NewTrade) -> Result<Trade> {
-        let trade = Trade {
-            id: trade_data.id,
-            market_id: trade_data.market_id,
-            buyer_order_id: trade_data.buyer_order_id,
-            seller_order_id: trade_data.seller_order_id,
-            buyer_user_id: trade_data.buyer_user_id,
-            seller_user_id: trade_data.seller_user_id,
-            price: trade_data.price,
-            base_amount: trade_data.base_amount,
-            quote_amount: trade_data.quote_amount,
-            buyer_fee: trade_data.buyer_fee,
-            seller_fee: trade_data.seller_fee,
-            timestamp: Utc::now().timestamp_millis(),
-            is_liquidation: trade_data.is_liquidation,
-            taker_side: trade_data.taker_side,
-        };
-
-        self.insert_trade(trade.clone());
-        Ok(trade)
-    }
-
-    fn create_trades(&self, trades_data: Vec<NewTrade>) -> Result<Vec<Trade>> {
-        let mut result = Vec::new();
-
-        for trade_data in trades_data {
-            let trade = self.create_trade(trade_data)?;
-            result.push(trade);
-        }
-
-        Ok(result)
-    }
-
-    // Balance operations
-    fn update_or_create_balance(
-        &self,
-        user_id: &str,
-        asset: &str,
-        available_delta: bigdecimal::BigDecimal,
-        locked_delta: bigdecimal::BigDecimal,
-    ) -> Result<Balance> {
-        let mut balances = self.balances.lock().unwrap();
-        let key = (user_id.to_string(), asset.to_string());
-
-        if let Some(mut balance) = balances.get(&key).cloned() {
-            balance.available = balance.available.clone() + available_delta.clone();
-            balance.locked = balance.locked.clone() + locked_delta.clone();
-            balance.update_time = chrono::Utc::now().timestamp_millis();
-
-            balances.insert(key, balance.clone());
-            Ok(balance)
-        } else {
-            let balance = Balance {
-                user_id: user_id.to_string(),
-                asset: asset.to_string(),
-                available: available_delta,
-                locked: locked_delta,
-                update_time: Utc::now().timestamp_millis(),
-                reserved: BigDecimal::from(0),
-                total_deposited: BigDecimal::from(0),
-                total_withdrawn: BigDecimal::from(0),
-            };
-
-            balances.insert(key, balance.clone());
-            Ok(balance)
-        }
     }
 
     // Market stats operations

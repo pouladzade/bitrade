@@ -3,10 +3,11 @@ use crate::models::{
     matched_trade::MatchedTrade,
     trade_order::{OrderSide, OrderType, TradeOrder},
 };
-use crate::utils;
+
 use anyhow::{Context, Result};
 use bigdecimal::{BigDecimal, Zero};
-use database::models::models::TimeInForce;
+use common::utils::{get_utc_now, get_uuid_string};
+use database::models::models::{OrderStatus, TimeInForce};
 use std::str::FromStr;
 use tonic::Status;
 
@@ -41,7 +42,7 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         Ok(TradeOrder {
-            id: utils::generate_uuid_id(),
+            id: get_uuid_string(),
             market_id: req.market_id,
             order_type,
             side,
@@ -51,8 +52,8 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
             quote_amount: quote_amount.clone(),
             maker_fee,
             taker_fee,
-            create_time: utils::get_utc_now_time_millisecond(),
-            client_order_id: Some(utils::generate_uuid_id()),
+            create_time: get_utc_now(),
+            client_order_id: Some(get_uuid_string()),
             expires_at: None,
             post_only: Some(false),
             remained_base: base_amount,
@@ -60,8 +61,9 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
             filled_base: BigDecimal::zero(),
             filled_quote: BigDecimal::zero(),
             filled_fee: BigDecimal::zero(),
-            update_time: utils::get_utc_now_time_millisecond(),
+            update_time: get_utc_now(),
             time_in_force: Some(TimeInForce::GTC),
+            status: OrderStatus::Open,
         })
     }
 }

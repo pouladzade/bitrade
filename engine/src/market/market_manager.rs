@@ -1,11 +1,11 @@
 use super::market::Market;
 use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::TradeOrder;
-use crate::utils;
 use anyhow::{anyhow, Context, Result};
 use bigdecimal::BigDecimal;
+use common::utils::get_utc_now;
 use database::models::models::{MarketStatus, NewMarket};
-use database::persistence::persistence::Persistence;
+use database::persistence::Persistence;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -109,8 +109,8 @@ impl<P: Persistence> MarketManager<P> {
                     default_taker_fee: BigDecimal::from_str(&default_taker_fee)
                         .context("Failed to parse amount as Decimal")
                         .map_err(|e| Status::invalid_argument(e.to_string()))?,
-                    create_time: utils::get_utc_now_time_millisecond(),
-                    update_time: utils::get_utc_now_time_millisecond(),
+                    create_time: get_utc_now(),
+                    update_time: get_utc_now(),
                     amount_precision: 8,
                     min_base_amount: BigDecimal::from_str("0.00000000")
                         .context("Failed to parse amount as Decimal")

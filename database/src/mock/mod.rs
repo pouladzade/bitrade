@@ -1,1 +1,1 @@
-pub mod mock_thread_safe_persistence;
+pub mod mock_persister;

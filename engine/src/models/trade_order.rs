@@ -30,6 +30,7 @@ pub struct TradeOrder {
     pub post_only: Option<bool>,
     pub time_in_force: Option<TimeInForce>,
     pub expires_at: Option<i64>,
+    pub status: OrderStatus,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -156,11 +157,11 @@ impl From<TradeOrder> for NewOrder {
 
 pub fn determine_order_status(trade_order: &TradeOrder) -> String {
     if trade_order.remained_base == BigDecimal::from(0) {
-        "Filled".to_string()
+        "FILLED".to_string()
     } else if trade_order.filled_base > BigDecimal::from(0) {
-        "Partially Filled".to_string()
+        "PARTIALLY_FILLED".to_string()
     } else {
-        "Open".to_string()
+        "OPEN".to_string()
     }
 }
 
@@ -198,6 +199,8 @@ impl TryFrom<Order> for TradeOrder {
                 .transpose()
                 .map_err(|e| anyhow::anyhow!("Invalid TimeInForce: {}", e))?,
             expires_at: order.expires_at,
+            status: OrderStatus::try_from(order.status.as_str())
+                .map_err(|e| anyhow::anyhow!("Invalid OrderStatus: {}", e))?,
         })
     }
 }

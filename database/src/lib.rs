@@ -1,9 +1,9 @@
+#![recursion_limit = "512"]
 
 pub mod mock;
 pub mod models;
 pub mod persistence;
 mod repository;
-
 
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
@@ -26,3 +26,4 @@ pub fn get_connection(pool: &DbPool) -> DbConnection {
     pool.get()
         .expect("Failed to get a connection from the pool")
 }
+

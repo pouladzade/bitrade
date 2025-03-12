@@ -1,11 +1,11 @@
 use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
-use crate::utils::is_zero;
 use anyhow::Result;
 use bigdecimal::BigDecimal;
 use colored::*;
+use common::utils::is_zero;
 use database::models::models::NewOrder;
-use database::persistence::persistence::Persistence;
+use database::persistence::Persistence;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 
@@ -79,9 +79,9 @@ impl<P: Persistence> OrderBook<P> {
         }
 
         Self::print_order(&order);
-
+        println!("persist_create_order");
         self.persist_create_order(&order)?;
-
+        println!("match_order: {:?}", order);
         self.match_order(order)
     }
 
