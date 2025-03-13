@@ -94,8 +94,7 @@ CREATE TABLE orders (
     CONSTRAINT valid_expires_at CHECK (
         (time_in_force = 'GTC' AND expires_at IS NULL) OR 
         (time_in_force IN ('IOC', 'FOK') AND expires_at IS NOT NULL)
-    ),
-    CONSTRAINT quote_amount_match CHECK (quote_amount = price * base_amount)
+    )
 );
 
 -- Create composite index for order book queries
@@ -141,7 +140,7 @@ CREATE TABLE trades (
     
     -- Enhanced constraints
     CONSTRAINT valid_taker_side CHECK (taker_side IN ('BUY', 'SELL')),
-    CONSTRAINT quote_amount_match_trade CHECK (quote_amount = price * base_amount),
+    
     CONSTRAINT different_users CHECK (buyer_user_id != seller_user_id)
 );
 

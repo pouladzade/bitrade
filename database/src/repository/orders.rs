@@ -117,15 +117,9 @@ impl Repository {
                 .context("Market not found")?;
 
             // Calculate remaining amount to unfreeze
-            let (asset, unfreeze_amount) = match order_side {
-                OrderSide::Buy => (
-                    market.quote_asset.clone(),
-                    order.quote_amount - order.filled_quote,
-                ),
-                OrderSide::Sell => (
-                    market.base_asset.clone(),
-                    order.base_amount - order.filled_base,
-                ),
+            let (asset, unlock_amount) = match order_side {
+                OrderSide::Buy => (market.quote_asset.clone(), order.remained_quote.clone()),
+                OrderSide::Sell => (market.base_asset.clone(), order.remained_base.clone()),
             };
 
             // Update order status to CANCELED
@@ -137,16 +131,16 @@ impl Repository {
                 .get_result::<Order>(conn)
                 .context("Failed to update order status")?;
 
-            // Unfreeze the balance
+            // Unlock the balance
             diesel::update(wallets::table)
                 .filter(wallets::user_id.eq(&order.user_id))
                 .filter(wallets::asset.eq(&asset))
                 .set((
-                    wallets::available.eq(wallets::available + unfreeze_amount.clone()),
-                    wallets::locked.eq(wallets::locked - unfreeze_amount),
+                    wallets::available.eq(wallets::available + unlock_amount.clone()),
+                    wallets::locked.eq(wallets::locked - unlock_amount),
                 ))
                 .execute(conn)
-                .context("Failed to unfreeze balance")?;
+                .context("Failed to unlock balance")?;
 
             Ok(updated_order)
         })
@@ -179,16 +173,10 @@ impl Repository {
                 let order_side = OrderSide::from_str(&order.side)
                     .map_err(|e| anyhow::anyhow!("Invalid order side {}", e))?;
 
-                // Determine the asset to unfreeze based on order side
-                let (asset, unfreeze_amount) = match order_side {
-                    OrderSide::Buy => (
-                        market.quote_asset.clone(),
-                        order.quote_amount - order.filled_quote,
-                    ),
-                    OrderSide::Sell => (
-                        market.base_asset.clone(),
-                        order.base_amount - order.filled_base,
-                    ),
+                // Determine the asset to unlock based on order side
+                let (asset, unlock_amount) = match order_side {
+                    OrderSide::Buy => (market.quote_asset.clone(), order.remained_quote.clone()),
+                    OrderSide::Sell => (market.base_asset.clone(), order.remained_base.clone()),
                 };
 
                 // Update order status to CANCELED
@@ -200,16 +188,16 @@ impl Repository {
                     .get_result::<Order>(conn)
                     .context("Failed to update order status")?;
 
-                // Unfreeze the balance
+                // Unlock the balance
                 diesel::update(wallets::table)
                     .filter(wallets::user_id.eq(&order.user_id))
                     .filter(wallets::asset.eq(&asset))
                     .set((
-                        wallets::available.eq(wallets::available + unfreeze_amount.clone()),
-                        wallets::locked.eq(wallets::locked - unfreeze_amount),
+                        wallets::available.eq(wallets::available + unlock_amount.clone()),
+                        wallets::locked.eq(wallets::locked - unlock_amount),
                     ))
                     .execute(conn)
-                    .context("Failed to unfreeze balance")?;
+                    .context("Failed to unlock balance")?;
 
                 canceled_orders.push(canceled_order);
             }
@@ -244,16 +232,10 @@ impl Repository {
                     .first::<Market>(conn)
                     .context("Market not found")?;
 
-                // Determine the asset to unfreeze based on order side
-                let (asset, unfreeze_amount) = match order_side {
-                    OrderSide::Buy => (
-                        market.quote_asset.clone(),
-                        order.quote_amount - order.filled_quote,
-                    ),
-                    OrderSide::Sell => (
-                        market.base_asset.clone(),
-                        order.base_amount - order.filled_base,
-                    ),
+                // Determine the asset to unlock based on order side
+                let (asset, unlock_amount) = match order_side {
+                    OrderSide::Buy => (market.quote_asset.clone(), order.remained_quote.clone()),
+                    OrderSide::Sell => (market.base_asset.clone(), order.remained_base.clone()),
                 };
 
                 // Update order status to CANCELED
@@ -265,16 +247,16 @@ impl Repository {
                     .get_result::<Order>(conn)
                     .context("Failed to update order status")?;
 
-                // Unfreeze the balance
+                // Unlock the balance
                 diesel::update(wallets::table)
                     .filter(wallets::user_id.eq(&order.user_id))
                     .filter(wallets::asset.eq(&asset))
                     .set((
-                        wallets::available.eq(wallets::available + unfreeze_amount.clone()),
-                        wallets::locked.eq(wallets::locked - unfreeze_amount),
+                        wallets::available.eq(wallets::available + unlock_amount.clone()),
+                        wallets::locked.eq(wallets::locked - unlock_amount),
                     ))
                     .execute(conn)
-                    .context("Failed to unfreeze balance")?;
+                    .context("Failed to unlock balance")?;
 
                 canceled_orders.push(canceled_order);
             }
@@ -328,5 +310,15 @@ impl Repository {
             .order(orders::create_time.asc())
             .load::<Order>(conn)
             .context("Failed to retrieve all active orders")
+    }
+
+    pub fn update_order_status(&self, order_id: &str, status: OrderStatus) -> Result<Order> {
+        let conn = &mut self.get_conn()?;
+        let updated_order = diesel::update(orders::table.find(order_id))
+            .set((orders::status.eq(status.as_str())))
+            .get_result::<Order>(conn)
+            .context("Failed to update order status")?;
+
+        Ok(updated_order)
     }
 }

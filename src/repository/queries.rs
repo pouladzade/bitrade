@@ -122,7 +122,7 @@ impl QueryRepository for QueryRepositoryImpl {
         // Execute query with limit + 1
         let limit = pagination.limit + 1;
         let mut trades = query
-            .order_by((trades::timestamp.desc(), trades::id.desc()))
+            .order_by((trades::timestamp.desc()))
             .limit(limit)
             .load::<Trade>(&mut conn)?;
 

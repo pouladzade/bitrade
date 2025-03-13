@@ -3,7 +3,7 @@ use crate::models::models::*;
 use crate::models::schema::*;
 use anyhow::Result;
 use diesel::prelude::*;
-use uuid::Uuid;
+
 impl Repository {
     // Market operations
     pub fn create_market(&self, market_data: NewMarket) -> Result<Market> {

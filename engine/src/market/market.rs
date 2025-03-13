@@ -2,12 +2,12 @@ use anyhow::Result;
 use crossbeam::channel;
 use database::persistence::Persistence;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::TradeOrder;
-use crate::order_book::order_book::OrderBook;
+use crate::order_book::OrderBook;
 
 /// Custom error type for market-related failures
 #[derive(Debug, thiserror::Error)]
