@@ -16,20 +16,20 @@ use crate::validation::{validate_add_order_request, validate_create_market_reque
 use crate::wallet::wallet_service::WalletService;
 use anyhow::{Context, Result};
 use bigdecimal::BigDecimal;
-use database::persistence::postgres_persister::PostgresPersister;
+use database::provider::DatabaseProvider;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
 #[derive(Clone)]
-pub struct SpotServiceImpl {
-    pub market_manager: Arc<RwLock<MarketManager<PostgresPersister>>>,
-    pub wallet_service: Arc<WalletService>,
+pub struct SpotServiceImpl<P: DatabaseProvider + 'static> {
+    pub market_manager: Arc<RwLock<MarketManager<P>>>,
+    pub wallet_service: Arc<WalletService<P>>,
 }
 
 #[tonic::async_trait]
-impl SpotService for SpotServiceImpl {
+impl<P: DatabaseProvider + Send + Sync + 'static> SpotService for SpotServiceImpl<P> {
     async fn create_market(
         &self,
         request: Request<CreateMarketRequest>,

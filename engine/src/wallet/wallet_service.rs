@@ -1,21 +1,17 @@
 use anyhow::{Context, Result};
 use bigdecimal::BigDecimal;
-use database::persistence::postgres_persister::PostgresPersister;
 
-use database::models::models::Wallet;
-use database::persistence::Persistence;
+use database::{models::models::Wallet, provider::DatabaseProvider};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct WalletService {
-    persister: PostgresPersister,
+pub struct WalletService<P: DatabaseProvider> {
+    persister: Arc<P>,
 }
 
-impl WalletService {
+impl<P: DatabaseProvider> WalletService<P> {
     /// Create a new wallet for a specific user
-    pub fn new() -> Self {
-        let database_url = "postgres://postgres:mysecretpassword@localhost/postgres";
-        let pool_size = 10;
-        let persister = PostgresPersister::new(database_url.to_string(), pool_size);
+    pub fn new(persister: Arc<P>) -> Self {
         Self { persister }
     }
 
@@ -23,7 +19,7 @@ impl WalletService {
     pub fn get_balance(&self, asset: &str, user_id: &str) -> Result<BigDecimal> {
         let balance = self
             .persister
-            .get_balance(&user_id, asset)
+            .get_wallet(&user_id, asset)
             .context("Failed to retrieve balance")?
             .map(|b| b.available)
             .unwrap_or_else(|| BigDecimal::from(0));
@@ -35,7 +31,7 @@ impl WalletService {
     pub fn get_frozen_balance(&self, asset: &str, user_id: &str) -> Result<BigDecimal> {
         let balance = self
             .persister
-            .get_balance(&user_id, asset)
+            .get_wallet(&user_id, asset)
             .context("Failed to retrieve balance")?
             .map(|b| b.locked)
             .unwrap_or_else(|| BigDecimal::from(0));
@@ -98,58 +94,3 @@ impl WalletService {
         unimplemented!("Implement method to fetch all balances for a user")
     }
 }
-
-// Example usage
-// #[cfg(test)]
-// mod tests {
-//     use std::ptr::eq;
-
-//     use super::*;
-//     use chrono::Utc;
-//     use mockall::mock;
-//     use mockall::predicate::*;
-
-//     mock! {
-//         PersistenceMock {}
-//         impl Persistence for PersistenceMock {
-//             // Mock methods required for testing
-//             fn update_or_create_balance(
-//                 &self,
-//                 user_id: &str,
-//                 asset: &str,
-//                 available_delta: BigDecimal,
-//                 locked_delta: BigDecimal
-//             ) -> Result<Balance>;
-
-//             fn get_balance(&self, user_id: &str, asset: &str) -> Result<Option<Balance>>;
-//         }
-//     }
-
-//     #[test]
-//     fn test_add_balance() {
-//         let mut mock_persistence = MockPersistenceMock::new();
-//         mock_persistence
-//             .expect_update_or_create_balance()
-//             .with(
-//                 eq("user123"),
-//                 eq("BTC"),
-//                 eq(BigDecimal::from(10)),
-//                 eq(BigDecimal::from(0)),
-//             )
-//             .times(1)
-//             .returning(|_, _, _, _| {
-//                 Ok(Balance {
-//                     user_id: "user123".to_string(),
-//                     asset: "BTC".to_string(),
-//                     available: BigDecimal::from(10),
-//                     frozen: BigDecimal::from(0),
-//                     update_time: Utc::now().timestamp_millis(),
-//                 })
-//             });
-
-//         let wallet = Wallet::new("user123".to_string(), Arc::new(mock_persistence));
-
-//         let result = wallet.add_balance("BTC", BigDecimal::from(10));
-//         assert!(result.is_ok());
-//     }
-// }

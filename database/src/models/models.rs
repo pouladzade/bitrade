@@ -384,3 +384,13 @@ pub struct FeeTreasury {
     pub collected_amount: BigDecimal,
     pub last_update_time: i64,
 }
+
+#[derive(Debug, Clone, Insertable, Serialize, Deserialize)]
+#[diesel(table_name = fee_treasury)]
+pub struct NewFeeTreasury {
+    pub market_id: String,
+    pub asset: String,
+    pub treasury_address: String,
+    pub collected_amount: BigDecimal,
+    pub last_update_time: i64,
+}

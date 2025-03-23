@@ -1,7 +1,7 @@
 syntax = "proto3";
-package exchange.v1;
+package spot_query;
 
-service QueryService {
+service SpotQueryService {
   // Market queries
   rpc GetMarket(GetMarketRequest) returns (GetMarketResponse);
   rpc ListMarkets(ListMarketsRequest) returns (ListMarketsResponse);
@@ -9,16 +9,14 @@ service QueryService {
   // Order queries
   rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
   rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
-  rpc GetUserOrders(GetUserOrdersRequest) returns (GetUserOrdersResponse);
   
   // Trade queries
-  rpc GetTrade(GetTradeRequest) returns (GetTradeResponse);
   rpc ListTrades(ListTradesRequest) returns (ListTradesResponse);
   rpc GetUserTrades(GetUserTradesRequest) returns (GetUserTradesResponse);
   
   // Balance queries
-  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
-  rpc ListBalances(ListBalancesRequest) returns (ListBalancesResponse);
+  rpc GetWallet(GetWalletRequest) returns (GetWalletResponse);
+  rpc ListWallets(ListWalletsRequest) returns (ListWalletsResponse);
   
   // Market stats
   rpc GetMarketStats(GetMarketStatsRequest) returns (GetMarketStatsResponse);
@@ -27,8 +25,7 @@ service QueryService {
   rpc GetFeeTreasury(GetFeeTreasuryRequest) returns (GetFeeTreasuryResponse);
 }
 
-// Market messages
-message Market {
+message ProtoMarket {
   string id = 1;
   string base_asset = 2;
   string quote_asset = 3;
@@ -48,22 +45,32 @@ message GetMarketRequest {
 }
 
 message GetMarketResponse {
-  Market market = 1;
+  ProtoMarket market = 1;
 }
 
+message PaginationRequest {
+  int64 limit = 1;
+  int64 offset = 2;
+  string order_by = 3;
+  string order_direction = 4; // "asc" or "desc"
+}
+
+message PaginationResponse {
+  int64 total_count = 1;
+  bool has_more = 2;
+  int64 next_offset = 3;
+}
+
+// Update ListMarketsRequest
 message ListMarketsRequest {
-  string status = 1; // Optional filter
-  int32 page_size = 2;
-  string page_token = 3;
 }
 
 message ListMarketsResponse {
-  repeated Market markets = 1;
-  string next_page_token = 2;
+  repeated ProtoMarket markets = 1;
 }
 
 // Order messages
-message Order {
+message ProtoOrder {
   string id = 1;
   string market_id = 2;
   string user_id = 3;
@@ -88,44 +95,34 @@ message Order {
   int64 expires_at = 22;
 }
 
-// Order messages
 message GetOrderRequest {
   string order_id = 1;
 }
 
 message GetOrderResponse {
-  Order order = 1;
+  ProtoOrder order = 1;
+}
+
+message ProtoOrderFilter {
+  optional string user_id = 1;
+  optional string market_id = 2;
+  optional string order_id = 3;
+  optional string side = 4;
+  optional string status = 5;
+  optional string order_type = 6;
 }
 
 message ListOrdersRequest {
-  string market_id = 1;
-  optional string status = 2;
-  optional string side = 3;
-  int32 page_size = 4;
-  string page_token = 5;
+  optional ProtoOrderFilter filter = 1;
+  optional PaginationRequest pagination = 2;
 }
 
 message ListOrdersResponse {
-  repeated Order orders = 1;
-  string next_page_token = 2;
+  repeated ProtoOrder orders = 1;
+  PaginationResponse pagination = 2;
 }
 
-message GetUserOrdersRequest {
-  string user_id = 1;
-  optional string market_id = 2;
-  optional string status = 3;
-  optional string side = 4;
-  int32 page_size = 5;
-  string page_token = 6;
-}
-
-message GetUserOrdersResponse {
-  repeated Order orders = 1;
-  string next_page_token = 2;
-}
-
-// Trade messages
-message Trade {
+message ProtoTrade {
   string id = 1;
   int64 timestamp = 2;
   string market_id = 3;
@@ -142,25 +139,26 @@ message Trade {
   bool is_liquidation = 14;
 }
 
-message GetTradeRequest {
-  string trade_id = 1;
-}
-
-message GetTradeResponse {
-  Trade trade = 1;
+message ProtoTradeFilter {
+    optional string market_id = 1;
+    optional string buyer_order_id = 2;
+    optional string seller_order_id = 3;
+    optional string buyer_user_id = 4;
+    optional string seller_user_id = 5;
+    optional string taker_side = 6;
+    optional bool is_liquidation = 7;
+    optional int64 start_time = 8;
+    optional int64 end_time = 9;
 }
 
 message ListTradesRequest {
-  string market_id = 1;
-  int64 start_time = 2;
-  int64 end_time = 3;
-  int32 page_size = 4;
-  string page_token = 5;
+  optional ProtoTradeFilter filter = 1;
+  optional PaginationRequest pagination = 2;
 }
 
 message ListTradesResponse {
-  repeated Trade trades = 1;
-  string next_page_token = 2;
+  repeated ProtoTrade trades = 1;
+  PaginationResponse pagination = 2;
 }
 
 message GetUserTradesRequest {
@@ -168,17 +166,16 @@ message GetUserTradesRequest {
   string market_id = 2; // Optional
   int64 start_time = 3;
   int64 end_time = 4;
-  int32 page_size = 5;
-  string page_token = 6;
+  PaginationRequest pagination = 5;
 }
 
 message GetUserTradesResponse {
-  repeated Trade trades = 1;
-  string next_page_token = 2;
+  repeated ProtoTrade trades = 1;
+  PaginationResponse pagination = 2;
 }
 
 // Balance messages
-message Balance {
+message ProtoWallet {
   string user_id = 1;
   string asset = 2;
   string available = 3;
@@ -189,28 +186,32 @@ message Balance {
   int64 update_time = 8;
 }
 
-message GetBalanceRequest {
+message GetWalletRequest {
   string user_id = 1;
   string asset = 2;
 }
 
-message GetBalanceResponse {
-  Balance balance = 1;
+message GetWalletResponse {
+  ProtoWallet wallet = 1;
 }
 
-message ListBalancesRequest {
-  string user_id = 1;
-  int32 page_size = 2;
-  string page_token = 3;
+message ProtoWalletFilter { 
+  optional string user_id = 1;
+  optional string asset = 2;
 }
 
-message ListBalancesResponse {
-  repeated Balance balances = 1;
-  string next_page_token = 2;
+message ListWalletsRequest {
+  optional ProtoWalletFilter filter = 1;
+  optional PaginationRequest pagination = 2;
+}
+
+message ListWalletsResponse {
+  repeated ProtoWallet wallets = 1;
+  PaginationResponse pagination = 2;
 }
 
 // Market stats messages
-message MarketStats {
+message ProtoMarketStats {
   string market_id = 1;
   string high_24h = 2;
   string low_24h = 3;
@@ -225,17 +226,16 @@ message GetMarketStatsRequest {
 }
 
 message GetMarketStatsResponse {
-  MarketStats stats = 1;
+  ProtoMarketStats stats = 1;
 }
 
 // Fee treasury messages
-message FeeTreasury {
-  int32 id = 1;
-  string treasury_address = 2;
-  string market_id = 3;
-  string asset = 4;
-  string collected_amount = 5;
-  int64 last_update_time = 6;
+message ProtoFeeTreasury {
+  string treasury_address = 1;
+  string market_id = 2;
+  string asset = 3;
+  string collected_amount = 4;
+  int64 last_update_time = 5;
 }
 
 message GetFeeTreasuryRequest {
@@ -244,15 +244,5 @@ message GetFeeTreasuryRequest {
 }
 
 message GetFeeTreasuryResponse {
-  FeeTreasury treasury = 1;
-}
-
-// Common pagination message that can be embedded in responses
-message PageInfo {
-  int32 total_items = 1;
-  int32 total_pages = 2;
-  int32 current_page = 3;
-  int32 items_per_page = 4;
-  bool has_next_page = 5;
-  string next_page_token = 6;
+  ProtoFeeTreasury treasury = 1;
 } 

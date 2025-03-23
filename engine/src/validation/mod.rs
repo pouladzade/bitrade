@@ -1,10 +1,8 @@
-use crate::grpc::spot::{AddOrderRequest, CreateMarketRequest, DepositRequest, WithdrawRequest};
-use anyhow::{anyhow, Context, Result};
+use crate::grpc::spot::{AddOrderRequest, CreateMarketRequest};
+use anyhow::{anyhow, Result};
 use bigdecimal::BigDecimal;
 use common::utils::validate_positive_decimal;
 use std::str::FromStr;
-
-
 
 pub fn validate_add_order_request(req: &AddOrderRequest) -> Result<()> {
     // Validate price is positive

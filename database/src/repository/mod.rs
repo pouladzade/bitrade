@@ -1,7 +1,7 @@
+mod fee_treasury;
 mod market_stats;
 mod markets;
 mod orders;
-
 mod trades;
 mod wallets;
 
@@ -13,7 +13,6 @@ use anyhow::Result;
 pub struct Repository {
     pool: DbPool,
 }
-
 impl Repository {
     pub fn new(pool: DbPool) -> Self {
         Self { pool }

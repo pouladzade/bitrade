@@ -7,7 +7,7 @@ pub fn generate_uuid_id() -> uuid::Uuid {
     uuid::Uuid::new_v4()
 }
 
-pub fn get_utc_now() -> i64 {
+pub fn get_utc_now_millis() -> i64 {
     Utc::now().timestamp_millis()
 }
 

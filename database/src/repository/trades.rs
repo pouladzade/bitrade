@@ -1,59 +1,133 @@
 use super::Repository;
+use crate::filters::TradeFilter;
 use crate::models::models::*;
 
 use crate::models::schema::*;
+use crate::provider::{TradeDatabaseReader, TradeDatabaseWriter};
 use anyhow::Context;
 use anyhow::Result;
 use bigdecimal::BigDecimal;
 use chrono::Utc;
+use common::db::pagination::Paginated;
+use common::db::pagination::Pagination;
 use diesel::prelude::*;
 use uuid::Uuid;
 
 impl Repository {
-    pub fn get_trades_for_market(&self, market_id: &str, limit: i64) -> Result<Vec<Trade>> {
+    fn get_trade_total_count(&self, filter: TradeFilter) -> Result<i64> {
         let conn = &mut self.get_conn()?;
+        let mut query = trades::table.into_boxed();
 
-        let result = trades::table
-            .filter(trades::market_id.eq(market_id))
+        if let Some(market_id) = filter.market_id {
+            query = query.filter(trades::market_id.eq(market_id));
+        }
+
+        if let Some(buyer_order_id) = filter.buyer_order_id {
+            query = query.filter(trades::buyer_order_id.eq(buyer_order_id));
+        }
+
+        if let Some(seller_order_id) = filter.seller_order_id {
+            query = query.filter(trades::seller_order_id.eq(seller_order_id));
+        }
+
+        if let Some(buyer_user_id) = filter.buyer_user_id {
+            query = query.filter(trades::buyer_user_id.eq(buyer_user_id));
+        }
+
+        if let Some(seller_user_id) = filter.seller_user_id {
+            query = query.filter(trades::seller_user_id.eq(seller_user_id));
+        }
+
+        if let Some(taker_side) = filter.taker_side {
+            query = query.filter(trades::taker_side.eq(taker_side));
+        }
+
+        if let Some(is_liquidation) = filter.is_liquidation {
+            query = query.filter(trades::is_liquidation.eq(is_liquidation));
+        }
+
+        if let Some(start_time) = filter.start_time {
+            query = query.filter(trades::timestamp.ge(start_time));
+        }
+
+        if let Some(end_time) = filter.end_time {
+            query = query.filter(trades::timestamp.le(end_time));
+        }
+
+        let total_count: i64 = query.select(diesel::dsl::count_star()).first(conn)?;
+        Ok(total_count)
+    }
+}
+
+impl TradeDatabaseReader for Repository {
+    fn list_trades(
+        &self,
+        filter: TradeFilter,
+        pagination: Option<Pagination>,
+    ) -> Result<Paginated<Trade>> {
+        let conn = &mut self.get_conn()?;
+        let pagination = pagination.unwrap_or_default();
+        let mut query = trades::table.into_boxed();
+        let total_count = self.get_trade_total_count(filter.clone())?;
+        if let Some(market_id) = filter.market_id {
+            query = query.filter(trades::market_id.eq(market_id));
+        }
+
+        if let Some(buyer_order_id) = filter.buyer_order_id {
+            query = query.filter(trades::buyer_order_id.eq(buyer_order_id));
+        }
+
+        if let Some(seller_order_id) = filter.seller_order_id {
+            query = query.filter(trades::seller_order_id.eq(seller_order_id));
+        }
+
+        if let Some(buyer_user_id) = filter.buyer_user_id {
+            query = query.filter(trades::buyer_user_id.eq(buyer_user_id));
+        }
+
+        if let Some(seller_user_id) = filter.seller_user_id {
+            query = query.filter(trades::seller_user_id.eq(seller_user_id));
+        }
+
+        if let Some(taker_side) = filter.taker_side {
+            query = query.filter(trades::taker_side.eq(taker_side));
+        }
+
+        if let Some(is_liquidation) = filter.is_liquidation {
+            query = query.filter(trades::is_liquidation.eq(is_liquidation));
+        }
+
+        if let Some(start_time) = filter.start_time {
+            query = query.filter(trades::timestamp.ge(start_time));
+        }
+
+        if let Some(end_time) = filter.end_time {
+            query = query.filter(trades::timestamp.le(end_time));
+        }
+
+        let limit = pagination.limit.unwrap_or(10);
+        let offset = pagination.offset.unwrap_or(0);
+
+        let trades = query
             .order(trades::timestamp.desc())
             .limit(limit)
-            .load(conn)?;
+            .offset(offset)
+            .load::<Trade>(conn)?;
 
-        Ok(result)
+        let has_more = trades.len() > limit as usize;
+        let next_offset = if has_more { Some(offset + limit) } else { None };
+
+        Ok(Paginated {
+            items: trades,
+            total_count,
+            next_offset,
+            has_more,
+        })
     }
+}
 
-    pub fn get_trades_for_order(&self, order_id: &str) -> Result<Vec<Trade>> {
-        let conn = &mut self.get_conn()?;
-
-        let result = trades::table
-            .filter(
-                trades::buyer_order_id
-                    .eq(order_id)
-                    .or(trades::seller_order_id.eq(order_id)),
-            )
-            .order(trades::timestamp.desc())
-            .load(conn)?;
-
-        Ok(result)
-    }
-
-    pub fn get_user_trades(&self, user_id: &str, limit: i64) -> Result<Vec<Trade>> {
-        let conn = &mut self.get_conn()?;
-
-        let result = trades::table
-            .filter(
-                trades::buyer_user_id
-                    .eq(user_id)
-                    .or(trades::seller_user_id.eq(user_id)),
-            )
-            .order(trades::timestamp.desc())
-            .limit(limit)
-            .load(conn)?;
-
-        Ok(result)
-    }
-
-    pub fn execute_limit_trade(
+impl TradeDatabaseWriter for Repository {
+    fn execute_limit_trade(
         &self,
         is_buyer_taker: bool,
         market_id: String,

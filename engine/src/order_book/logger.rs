@@ -2,8 +2,8 @@ use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::{OrderType, TradeOrder};
 use crate::order_book::OrderBook;
 use colored::*;
-use database::persistence::Persistence;
-impl<P: Persistence> OrderBook<P> {
+use database::provider::DatabaseProvider;
+impl<P: DatabaseProvider> OrderBook<P> {
     pub fn print_bids(&self) {
         let bids_sorted: Vec<TradeOrder> = self.bids.clone().into_sorted_vec();
         let bids_reversed: Vec<TradeOrder> = bids_sorted.into_iter().rev().collect();

@@ -1,11 +1,8 @@
 use std::{str::FromStr, sync::Arc};
 
 use bigdecimal::BigDecimal;
-use chrono::Utc;
-use common::utils::get_uuid_string;
-use database::{
-    mock::mock_persister::MockPersister, models::models::{OrderStatus, TimeInForce},
-};
+use common::utils::{self, get_uuid_string};
+use database::models::models::{OrderStatus, TimeInForce};
 
 use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
 
@@ -34,21 +31,17 @@ pub fn create_order(
         quote_amount: BigDecimal::from_str(quote_amount).unwrap(),
         maker_fee: BigDecimal::from(0),
         taker_fee: BigDecimal::from(0),
-        create_time: Utc::now().timestamp_millis(),
+        create_time: utils::get_utc_now_millis(),
         remained_base: BigDecimal::from_str(base_amount).unwrap(),
         remained_quote: BigDecimal::from_str(quote_amount).unwrap(),
         filled_base: BigDecimal::from(0),
         filled_quote: BigDecimal::from(0),
         filled_fee: BigDecimal::from(0),
-        update_time: Utc::now().timestamp_millis(),
+        update_time: utils::get_utc_now_millis(),
         client_order_id: None,
-        expires_at: Some(Utc::now().timestamp_millis() + 1000 * 60 * 60 * 24),
+        expires_at: Some(utils::get_utc_now_millis() + 1000 * 60 * 60 * 24),
         post_only: Some(false),
         time_in_force: Some(TimeInForce::GTC),
         status: OrderStatus::Open,
     }
-}
-
-pub fn create_persistence_mock() -> Arc<MockPersister> {
-    Arc::new(MockPersister::new())
 }

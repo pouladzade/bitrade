@@ -2,14 +2,14 @@ use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
 use anyhow::Result;
 use bigdecimal::BigDecimal;
-use common::utils;
-use database::persistence::Persistence;
+use database::models::models::NewOrder;
+use database::provider::DatabaseProvider;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 
 use super::OrderBook;
 
-impl<P: Persistence> OrderBook<P> {
+impl<P: DatabaseProvider> OrderBook<P> {
     /// Add a new order asynchronously
     pub fn new(
         persister: Arc<P>,
@@ -121,6 +121,13 @@ impl<P: Persistence> OrderBook<P> {
         self.bid_depth.clear();
         self.ask_depth.clear();
         Ok(true)
+    }
+    pub fn persist_create_order(&self, order: &TradeOrder) -> anyhow::Result<()> {
+        let new_order: NewOrder = order.clone().into(); // Convert TradeOrder to NewOrder
+
+        self.persister.create_order(new_order)?;
+
+        Ok(())
     }
 }
 

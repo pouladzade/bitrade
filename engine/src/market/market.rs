@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossbeam::channel;
-use database::persistence::Persistence;
+use database::provider::DatabaseProvider;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -30,7 +30,7 @@ type Task<P> = Box<dyn FnOnce(&mut OrderBook<P>) + Send + 'static>;
 #[derive(Debug)]
 pub struct Market<P>
 where
-    P: Persistence + 'static,
+    P: DatabaseProvider + 'static,
 {
     task_sender: channel::Sender<Task<P>>,
     persister: Arc<P>,
@@ -40,7 +40,7 @@ where
     started: Arc<AtomicBool>, // Track market status
 }
 
-impl<P: Persistence> Market<P> {
+impl<P: DatabaseProvider> Market<P> {
     pub fn new(
         persister: Arc<P>,
         market_id: String,

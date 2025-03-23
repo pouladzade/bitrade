@@ -1,15 +1,27 @@
-use crate::models::models::*;
+use crate::{
+    models::models::*,
+    provider::{MarketStatDatabaseReader, MarketStatDatabaseWriter},
+};
 
+use super::Repository;
 use crate::models::schema::*;
 use anyhow::Result;
 use bigdecimal::BigDecimal;
+use common::utils;
 use diesel::prelude::*;
 
-use super::Repository;
+impl MarketStatDatabaseReader for Repository {
+    fn get_market_stats(&self, market_id: &str) -> Result<Option<MarketStat>> {
+        let conn = &mut self.get_conn()?;
 
-impl Repository {
-    // Market stats operations
-    pub fn update_market_stats(
+        let result = market_stats::table.find(market_id).first(conn).optional()?;
+
+        Ok(result)
+    }
+}
+
+impl MarketStatDatabaseWriter for Repository {
+    fn upsert_market_stats(
         &self,
         market_id: &str,
         high_24h: BigDecimal,
@@ -20,7 +32,7 @@ impl Repository {
     ) -> Result<MarketStat> {
         let conn = &mut self.get_conn()?;
 
-        let current_time = chrono::Utc::now().timestamp_millis();
+        let current_time = utils::get_utc_now_millis();
 
         // Check if stats exist
         let stats_option = market_stats::table
@@ -60,13 +72,5 @@ impl Repository {
 
             Ok(result)
         }
-    }
-
-    pub fn get_market_stats(&self, market_id: &str) -> Result<Option<MarketStat>> {
-        let conn = &mut self.get_conn()?;
-
-        let result = market_stats::table.find(market_id).first(conn).optional()?;
-
-        Ok(result)
     }
 }

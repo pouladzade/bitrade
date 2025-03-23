@@ -1,13 +1,13 @@
 use crate::models::trade_order::TradeOrder;
 use bigdecimal::BigDecimal;
-use database::persistence::Persistence;
+use database::provider::DatabaseProvider;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct OrderBook<P>
 where
-    P: Persistence + 'static,
+    P: DatabaseProvider + 'static,
 {
     bids: BinaryHeap<TradeOrder>, // Max-heap for bids (buy orders)
     asks: BinaryHeap<TradeOrder>, // Min-heap for asks (sell orders)

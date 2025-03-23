@@ -1,14 +1,124 @@
 use super::Repository;
+use crate::filters::OrderFilter;
 use crate::models::models::*;
 use crate::models::schema::*;
+use crate::provider::*;
 use anyhow::Context;
 use anyhow::Result;
-use bigdecimal::BigDecimal;
+use common::db::pagination::*;
+use common::utils;
 use diesel::prelude::*;
 
 impl Repository {
-    // Order operations
-    pub fn create_order(&self, order_data: NewOrder) -> Result<Order> {
+    fn get_order_total_count(&self, filter: OrderFilter) -> Result<i64> {
+        let conn = &mut self.get_conn()?;
+        let mut count_query = orders::table.into_boxed();
+        if let Some(order_id) = filter.order_id {
+            count_query = count_query.filter(orders::id.eq(order_id));
+        }
+        if let Some(market_id) = filter.market_id {
+            count_query = count_query.filter(orders::market_id.eq(market_id));
+        }
+        if let Some(user_id) = filter.user_id {
+            count_query = count_query.filter(orders::user_id.eq(user_id));
+        }
+        if let Some(status) = filter.status {
+            count_query = count_query.filter(orders::status.eq(status));
+        }
+        if let Some(side) = filter.side {
+            count_query = count_query.filter(orders::side.eq(side));
+        }
+        if let Some(order_type) = filter.order_type {
+            count_query = count_query.filter(orders::order_type.eq(order_type));
+        }
+
+        // Get total count
+        let total_count: i64 = count_query.select(diesel::dsl::count_star()).first(conn)?;
+        Ok(total_count)
+    }
+}
+
+impl OrderDatabaseReader for Repository {
+    fn get_order(&self, order_id: &str) -> Result<Option<Order>> {
+        let conn = &mut self.get_conn()?;
+        let order = orders::table
+            .find(order_id)
+            .first::<Order>(conn)
+            .context("Order not found")?;
+        Ok(Some(order))
+    }
+    fn get_active_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+        let conn = &mut self.get_conn()?;
+        let orders = orders::table
+            .filter(orders::status.eq_any(&[
+                OrderStatus::Open.as_str(),
+                OrderStatus::PartiallyFilled.as_str(),
+            ]))
+            .load::<Order>(conn)
+            .context("Failed to fetch active orders")?;
+        Ok(orders)
+    }
+
+    fn list_orders(
+        &self,
+        filter: OrderFilter,
+        pagination: Option<Pagination>,
+    ) -> Result<Paginated<Order>> {
+        let conn = &mut self.get_conn()?;
+        let pagination = pagination.unwrap_or_default();
+
+        // Build base query
+        let mut query = orders::table.into_boxed();
+
+        // Apply filters
+        let cloned_filter = filter.clone();
+        if let Some(order_id) = filter.order_id {
+            query = query.filter(orders::id.eq(order_id));
+        }
+        if let Some(market_id) = filter.market_id {
+            query = query.filter(orders::market_id.eq(market_id));
+        }
+        if let Some(user_id) = filter.user_id {
+            query = query.filter(orders::user_id.eq(user_id));
+        }
+        if let Some(status) = filter.status {
+            query = query.filter(orders::status.eq(status));
+        }
+        if let Some(side) = filter.side {
+            query = query.filter(orders::side.eq(side));
+        }
+        if let Some(order_type) = filter.order_type {
+            query = query.filter(orders::order_type.eq(order_type));
+        }
+
+        let limit = pagination.limit.unwrap_or(10);
+        let offset = pagination.offset.unwrap_or(0);
+        let total_count = self.get_order_total_count(cloned_filter)?;
+        let mut orders = query
+            .limit(limit + 1)
+            .offset(offset)
+            .load::<Order>(conn)
+            .context("Failed to retrieve orders")?;
+
+        // Check if there are more results
+        let has_more = orders.len() > limit as usize;
+        if has_more {
+            orders.pop(); // Remove the extra item we fetched
+        }
+
+        let next_offset = if has_more { Some(offset + limit) } else { None };
+
+        Ok(Paginated {
+            items: orders,
+            total_count,
+            next_offset,
+            has_more,
+        })
+    }
+}
+
+impl OrderDatabaseWriter for Repository {
+    fn create_order(&self, order_data: NewOrder) -> Result<Order> {
         let conn = &mut self.get_conn()?;
 
         conn.transaction::<Order, anyhow::Error, _>(|conn| {
@@ -53,41 +163,7 @@ impl Repository {
         })
     }
 
-    pub fn get_order(&self, order_id: &str) -> Result<Option<Order>> {
-        let conn = &mut self.get_conn()?;
-        let result = orders::table.find(order_id).first(conn).optional()?;
-
-        Ok(result)
-    }
-
-    pub fn get_open_orders_for_market(&self, market_id: &str) -> Result<Vec<Order>> {
-        let conn = &mut self.get_conn()?;
-
-        let result = orders::table
-            .filter(orders::market_id.eq(market_id))
-            .filter(orders::status.eq_any(&[
-                OrderStatus::Open.as_str(),
-                OrderStatus::PartiallyFilled.as_str(),
-            ]))
-            .order(orders::create_time.desc())
-            .load(conn)?;
-
-        Ok(result)
-    }
-
-    pub fn get_user_orders(&self, user_id: &str, limit: i64) -> Result<Vec<Order>> {
-        let conn = &mut self.get_conn()?;
-
-        let result = orders::table
-            .filter(orders::user_id.eq(user_id))
-            .order(orders::create_time.desc())
-            .limit(limit)
-            .load(conn)?;
-
-        Ok(result)
-    }
-
-    pub fn cancel_order(&self, order_id: &str) -> Result<Order> {
+    fn cancel_order(&self, order_id: &str) -> Result<Order> {
         let conn = &mut self.get_conn()?;
         conn.transaction::<Order, anyhow::Error, _>(|conn| {
             // Fetch the order first
@@ -126,7 +202,7 @@ impl Repository {
             let updated_order = diesel::update(orders::table.find(order_id))
                 .set((
                     orders::status.eq(OrderStatus::Canceled.as_str()),
-                    orders::update_time.eq(chrono::Utc::now().timestamp()),
+                    orders::update_time.eq(utils::get_utc_now_millis()),
                 ))
                 .get_result::<Order>(conn)
                 .context("Failed to update order status")?;
@@ -135,7 +211,7 @@ impl Repository {
             diesel::update(wallets::table)
                 .filter(wallets::user_id.eq(&order.user_id))
                 .filter(wallets::asset.eq(&asset))
-                .set((
+                .set((  
                     wallets::available.eq(wallets::available + unlock_amount.clone()),
                     wallets::locked.eq(wallets::locked - unlock_amount),
                 ))
@@ -147,7 +223,7 @@ impl Repository {
     }
 
     /// Cancel all active orders for a specific market
-    pub fn cancel_all_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+    fn cancel_all_orders(&self, market_id: &str) -> Result<Vec<Order>> {
         let conn = &mut self.get_conn()?;
         conn.transaction::<Vec<Order>, anyhow::Error, _>(|conn| {
             // Fetch all active orders for the market
@@ -183,7 +259,7 @@ impl Repository {
                 let canceled_order = diesel::update(orders::table.find(&order.id))
                     .set((
                         orders::status.eq(OrderStatus::Canceled.as_str()),
-                        orders::update_time.eq(chrono::Utc::now().timestamp_millis()),
+                        orders::update_time.eq(utils::get_utc_now_millis()),
                     ))
                     .get_result::<Order>(conn)
                     .context("Failed to update order status")?;
@@ -207,7 +283,7 @@ impl Repository {
     }
 
     /// Cancel all active orders globally
-    pub fn cancel_all_global_orders(&self) -> Result<Vec<Order>> {
+    fn cancel_all_global_orders(&self) -> Result<Vec<Order>> {
         let conn = &mut self.get_conn()?;
         conn.transaction::<Vec<Order>, anyhow::Error, _>(|conn| {
             // Fetch all active orders across all markets
@@ -242,7 +318,7 @@ impl Repository {
                 let canceled_order = diesel::update(orders::table.find(&order.id))
                     .set((
                         orders::status.eq(OrderStatus::Canceled.as_str()),
-                        orders::update_time.eq(chrono::Utc::now().timestamp()),
+                        orders::update_time.eq(utils::get_utc_now_millis()),
                     ))
                     .get_result::<Order>(conn)
                     .context("Failed to update order status")?;
@@ -265,54 +341,7 @@ impl Repository {
         })
     }
 
-    /// Recover active orders for a specific market to reload into the order book
-    pub fn get_active_orders(&self, market_id: &str) -> Result<Vec<Order>> {
-        let conn = &mut self.get_conn()?;
-        orders::table
-            .filter(orders::market_id.eq(market_id))
-            .filter(orders::status.eq_any(&[
-                OrderStatus::Open.as_str(),
-                OrderStatus::PartiallyFilled.as_str(),
-            ]))
-            .filter(orders::remained_base.gt(BigDecimal::from(0)))
-            .order(orders::create_time.asc())
-            .load::<Order>(conn)
-            .context("Failed to retrieve active orders")
-    }
-
-    /// Recover all active orders across all markets
-    pub fn get_all_active_orders(&self) -> Result<Vec<Order>> {
-        let conn = &mut self.get_conn()?;
-        orders::table
-            .filter(orders::status.eq_any(&[
-                OrderStatus::Open.as_str(),
-                OrderStatus::PartiallyFilled.as_str(),
-            ]))
-            .filter(orders::remained_base.gt(BigDecimal::from(0)))
-            .order(orders::create_time.asc())
-            .load::<Order>(conn)
-            .context("Failed to retrieve all active orders")
-    }
-
-    pub fn get_user_active_orders_count(
-        &self,
-        market_id: &str,
-        user_id: &str,
-    ) -> Result<Vec<Order>> {
-        let conn = &mut self.get_conn()?;
-        orders::table
-            .filter(orders::market_id.eq(market_id))
-            .filter(orders::user_id.eq(user_id))
-            .filter(orders::status.eq_any(&[
-                OrderStatus::Open.as_str(),
-                OrderStatus::PartiallyFilled.as_str(),
-            ]))
-            .order(orders::create_time.asc())
-            .load::<Order>(conn)
-            .context("Failed to retrieve all active orders")
-    }
-
-    pub fn update_order_status(&self, order_id: &str, status: OrderStatus) -> Result<Order> {
+    fn update_order_status(&self, order_id: &str, status: OrderStatus) -> Result<Order> {
         let conn = &mut self.get_conn()?;
         let updated_order = diesel::update(orders::table.find(order_id))
             .set((orders::status.eq(status.as_str())))

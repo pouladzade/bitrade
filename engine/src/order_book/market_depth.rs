@@ -2,9 +2,9 @@ use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
 use crate::order_book::OrderBook;
 use bigdecimal::BigDecimal;
 use common::utils;
-use database::persistence::Persistence;
+use database::provider::DatabaseProvider;
 
-impl<P: Persistence> OrderBook<P> {
+impl<P: DatabaseProvider> OrderBook<P> {
     pub fn handle_market_depth(&mut self, order: &TradeOrder) {
         if order.order_type == OrderType::Market {
             return;

@@ -6,7 +6,7 @@ use crate::models::{
 
 use anyhow::{Context, Result};
 use bigdecimal::{BigDecimal, Zero};
-use common::utils::{get_utc_now, get_uuid_string};
+use common::utils::{get_utc_now_millis, get_uuid_string};
 use database::models::models::{OrderStatus, TimeInForce};
 use std::str::FromStr;
 use tonic::Status;
@@ -52,7 +52,7 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
             quote_amount: quote_amount.clone(),
             maker_fee,
             taker_fee,
-            create_time: get_utc_now(),
+            create_time: get_utc_now_millis(),
             client_order_id: Some(get_uuid_string()),
             expires_at: None,
             post_only: Some(false),
@@ -61,7 +61,7 @@ impl TryFrom<AddOrderRequest> for TradeOrder {
             filled_base: BigDecimal::zero(),
             filled_quote: BigDecimal::zero(),
             filled_fee: BigDecimal::zero(),
-            update_time: get_utc_now(),
+            update_time: get_utc_now_millis(),
             time_in_force: Some(TimeInForce::GTC),
             status: OrderStatus::Open,
         })

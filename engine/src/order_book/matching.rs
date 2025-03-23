@@ -1,12 +1,12 @@
 use super::OrderBook;
-use crate::models::matched_trade::MatchedTrade;
+use crate::models::matched_trade::{self, MatchedTrade};
 use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
 use bigdecimal::BigDecimal;
 use common::utils::is_zero;
 use database::models::models::NewOrder;
-use database::persistence::Persistence;
+use database::provider::DatabaseProvider;
 
-impl<P: Persistence> OrderBook<P> {
+impl<P: DatabaseProvider> OrderBook<P> {
     pub fn match_limit_order(
         &mut self,
         mut order: TradeOrder,
@@ -170,6 +170,64 @@ impl<P: Persistence> OrderBook<P> {
         Ok(trades)
     }
 
+    pub fn match_fok_order(&mut self, order: TradeOrder) -> anyhow::Result<Vec<MatchedTrade>> {
+        let mut pop_orders: Vec<TradeOrder> = Vec::new();
+        let mut is_fully_matched = false;
+        let mut tem_order = order.clone();
+        match order.side {
+            OrderSide::Buy => {
+                while let Some(ask) = self.asks.pop() {
+                    if ask.price > order.price {
+                        self.asks.push(ask);
+                        break;
+                    }
+                    pop_orders.push(ask.clone());
+
+                    let trade_price = self.calculate_trade_price(&tem_order, &ask, true)?;
+                    let trade_amount =
+                        self.calculate_trade_amount(&tem_order, &ask, &trade_price)?;
+
+                    tem_order.remained_base = &tem_order.remained_base - &trade_amount;
+                    tem_order.remained_quote =
+                        &tem_order.remained_quote - &trade_amount * &trade_price;
+                    if is_zero(&tem_order.remained_base) {
+                        is_fully_matched = true;
+                        break;
+                    }
+                }
+            }
+            OrderSide::Sell => {
+                while let Some(mut bid) = self.bids.pop() {
+                    if bid.price < order.price {
+                        self.bids.push(bid);
+                        break;
+                    }
+                    pop_orders.push(bid.clone());
+                    let trade_price = self.calculate_trade_price(&bid, &tem_order, false)?;
+                    let trade_amount =
+                        self.calculate_trade_amount(&bid, &tem_order, &trade_price)?;
+
+                    tem_order.remained_base = &tem_order.remained_base - &trade_amount;
+                    tem_order.remained_quote =
+                        &tem_order.remained_quote - &trade_amount * &trade_price;
+                    if is_zero(&tem_order.remained_base) {
+                        is_fully_matched = true;
+                        break;
+                    }
+                }
+            }
+        }
+        for order in pop_orders {
+            self.asks.push(order);
+        }
+        if !is_fully_matched {
+            self.cancel_order(order.id)?;
+            return Err(anyhow::anyhow!("FOK order not fully matched"));
+        } else {
+            return self.match_limit_order(order);
+        }
+    }
+
     pub fn execute_trade(
         &mut self,
         buyer: &mut TradeOrder,
@@ -291,11 +349,5 @@ impl<P: Persistence> OrderBook<P> {
         }
     }
 
-    pub fn persist_create_order(&self, order: &TradeOrder) -> anyhow::Result<()> {
-        let new_order: NewOrder = order.clone().into(); // Convert TradeOrder to NewOrder
 
-        self.persister.create_order(new_order)?;
-
-        Ok(())
-    }
 }

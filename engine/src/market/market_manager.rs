@@ -3,9 +3,9 @@ use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::TradeOrder;
 use anyhow::{anyhow, Context, Result};
 use bigdecimal::BigDecimal;
-use common::utils::get_utc_now;
+use common::utils::get_utc_now_millis;
 use database::models::models::{MarketStatus, NewMarket};
-use database::persistence::Persistence;
+use database::provider::DatabaseProvider;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -15,14 +15,14 @@ use tonic::Status;
 #[derive(Debug)]
 pub struct MarketManager<P>
 where
-    P: Persistence + 'static,
+    P: DatabaseProvider + 'static,
 {
     markets: Arc<Mutex<HashMap<String, Arc<Mutex<Market<P>>>>>>,
     market_handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
     persister: Arc<P>,
 }
 
-impl<P: Persistence> MarketManager<P> {
+impl<P: DatabaseProvider> MarketManager<P> {
     pub fn new(persister: Arc<P>) -> Self {
         let manager = MarketManager {
             markets: Arc::new(Mutex::new(HashMap::new())),
@@ -109,8 +109,8 @@ impl<P: Persistence> MarketManager<P> {
                     default_taker_fee: BigDecimal::from_str(&default_taker_fee)
                         .context("Failed to parse amount as Decimal")
                         .map_err(|e| Status::invalid_argument(e.to_string()))?,
-                    create_time: get_utc_now(),
-                    update_time: get_utc_now(),
+                    create_time: get_utc_now_millis(),
+                    update_time: get_utc_now_millis(),
                     amount_precision: 8,
                     min_base_amount: BigDecimal::from_str("0.00000000")
                         .context("Failed to parse amount as Decimal")
@@ -239,7 +239,7 @@ impl<P: Persistence> MarketManager<P> {
 }
 
 // Implement Drop trait for clean thread termination
-impl<P: Persistence> Drop for MarketManager<P> {
+impl<P: DatabaseProvider> Drop for MarketManager<P> {
     fn drop(&mut self) {
         if let Ok(()) = self.shutdown() {
             tracing::debug!(target: "market_manager", "Gracefully shutdown all markets");
