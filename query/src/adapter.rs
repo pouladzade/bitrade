@@ -3,7 +3,7 @@ use database::filters::{OrderFilter, TradeFilter};
 use database::models::models::{FeeTreasury, Market, MarketStat, Order, Trade, Wallet};
 
 use crate::spot_query::{
-    PaginationRequest, PaginationResponse, ProtoFeeTreasury, ProtoMarket, ProtoMarketStats,
+    PaginationRequest, ProtoFeeTreasury, ProtoMarket, ProtoMarketStats,
     ProtoOrder, ProtoOrderFilter, ProtoTrade, ProtoTradeFilter, ProtoWallet,
 };
 

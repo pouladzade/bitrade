@@ -3,7 +3,7 @@ use database::repository::Repository;
 
 use crate::service::SpotQueryServiceImp;
 use crate::spot_query::spot_query_service_server::SpotQueryServiceServer;
-use log::{error, info};
+use log::info;
 use tonic::transport::Server;
 
 pub async fn start_server(address: String) -> Result<(), Box<dyn std::error::Error>> {
@@ -20,7 +20,7 @@ pub async fn start_server(address: String) -> Result<(), Box<dyn std::error::Err
         .serve(adr)
         .await
     {
-        error!("failed to read from socket; err = {:?}", e);
+        println!("failed to read from socket; err = {:?}", e);
     }
 
     Ok(())
