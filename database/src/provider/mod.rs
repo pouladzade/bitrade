@@ -1,5 +1,3 @@
-use crate::DbConnection;
-use crate::DbPool;
 use crate::filters::OrderFilter;
 use crate::filters::WalletFilter;
 use crate::{filters::TradeFilter, models::models::*};

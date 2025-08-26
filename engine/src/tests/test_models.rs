@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use bigdecimal::BigDecimal;
 use common::utils::{self, get_uuid_string};
