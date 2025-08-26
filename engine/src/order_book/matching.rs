@@ -1,9 +1,8 @@
 use super::OrderBook;
-use crate::models::matched_trade::{self, MatchedTrade};
+use crate::models::matched_trade::MatchedTrade;
 use crate::models::trade_order::{OrderSide, OrderType, TradeOrder};
 use bigdecimal::BigDecimal;
 use common::utils::is_zero;
-use database::models::models::NewOrder;
 use database::provider::DatabaseProvider;
 
 impl<P: DatabaseProvider> OrderBook<P> {
@@ -197,7 +196,7 @@ impl<P: DatabaseProvider> OrderBook<P> {
                 }
             }
             OrderSide::Sell => {
-                while let Some(mut bid) = self.bids.pop() {
+                while let Some(bid) = self.bids.pop() {
                     if bid.price < order.price {
                         self.bids.push(bid);
                         break;
@@ -348,6 +347,4 @@ impl<P: DatabaseProvider> OrderBook<P> {
                 .min(buyer.remained_base.clone()))
         }
     }
-
-
 }

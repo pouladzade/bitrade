@@ -1,81 +1,74 @@
-use std::env;
-
+use anyhow::Result;
 use config::{Config, Environment, File};
-use dotenv::dotenv;
 use serde::Deserialize;
+use std::env;
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
-    pub grpc: GrpcConfig,
     pub database: DatabaseConfig,
-    pub log: LogConfig,
-    pub features: FeatureFlags,
-    pub market: MarketConfig, // Add markets field
+    pub server: ServerConfig,
+    pub logging: LoggingConfig,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct LogConfig {
-    pub level: String,
+pub struct DatabaseConfig {
+    pub url: String,
+    pub pool_size: u32,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PrecisionConfig {
-    pub amount: u32,
-    pub price: u32,
-    pub fee: u32,
-}
-#[derive(Debug, Deserialize)]
-pub struct MinMarketConfig {
-    pub amount: u32,
-}
-#[derive(Debug, Deserialize)]
-pub struct MarketConfig {
-    pub name: String,
-    pub base: String,
-    pub quote: String,
-    pub precision: PrecisionConfig,
-    pub min: MinMarketConfig,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GrpcConfig {
+pub struct ServerConfig {
     pub host: String,
     pub port: u16,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DatabaseConnections {
-    pub max: u32,
-}
-#[derive(Debug, Deserialize)]
-pub struct DatabaseConfig {
-    pub url: String,
-    pub connections: DatabaseConnections,
+pub struct LoggingConfig {
+    pub level: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct FeatureFlags {
-    pub analytics: bool,
-    pub cache: bool,
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            database: DatabaseConfig {
+                url: "postgres://postgres:mysecretpassword@localhost/postgres".to_string(),
+                pool_size: 10,
+            },
+            server: ServerConfig {
+                host: "[::]".to_string(),
+                port: 50020,
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+            },
+        }
+    }
 }
 
-pub fn load_config() -> Result<AppConfig, config::ConfigError> {
-    // Load .env file
-    dotenv().ok();
-
-    // Get the run mode (e.g., development, production)
-    let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "development".into());
-
-    // Build the configuration using the builder pattern
-    let conf = Config::builder()
-        // Load default configuration file
+pub fn load_config() -> Result<AppConfig> {
+    let config = Config::builder()
+        // Start with default values
         .add_source(File::with_name("config/default").required(false))
-        // Load environment-specific configuration file
-        .add_source(File::with_name(&format!("config/{}", run_mode)).required(false))
-        // Load environment variables with prefix "APP" and separator "_"
-        .add_source(Environment::with_prefix("APP").separator("_"))
+        // Add local config file
+        .add_source(File::with_name("config/local").required(false))
+        // Add environment variables with prefix "BITRADE_"
+        .add_source(Environment::with_prefix("BITRADE").separator("_"))
         .build()?;
 
-    // Deserialize into AppConfig
-    conf.try_deserialize()
+    let app_config: AppConfig = config.try_deserialize()?;
+    Ok(app_config)
+}
+
+pub fn get_database_url() -> String {
+    env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:mysecretpassword@localhost/postgres".to_string())
+}
+
+pub fn get_server_address() -> String {
+    let host = env::var("SERVER_HOST").unwrap_or_else(|_| "[::]".to_string());
+    let port = env::var("SERVER_PORT")
+        .unwrap_or_else(|_| "50020".to_string())
+        .parse::<u16>()
+        .unwrap_or(50020);
+    format!("{}:{}", host, port)
 }

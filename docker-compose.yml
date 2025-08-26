@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bitrade-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "50020:50020"
+    environment:
+      - DATABASE_URL=postgres://postgres:mysecretpassword@postgres:5432/postgres
+      - RUST_LOG=info
+      - SERVER_HOST=[::]
+      - SERVER_PORT=50020
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["./bitrade"]
+    restart: unless-stopped
+
+  bitrade-query:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "50021:50021"
+    environment:
+      - DATABASE_URL=postgres://postgres:mysecretpassword@postgres:5432/postgres
+      - RUST_LOG=info
+      - SERVER_HOST=[::]
+      - SERVER_PORT=50021
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["./query"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -1,0 +1,47 @@
+# Use the official Rust image as a base
+FROM rust:1.89-slim
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install cargo-watch and diesel CLI for hot reloading and migrations
+RUN cargo install cargo-watch && \
+    cargo install diesel_cli --no-default-features --features postgres
+
+# Set working directory
+WORKDIR /usr/src/bitrade
+
+# Copy Cargo files first for better caching
+COPY Cargo.toml Cargo.lock ./
+COPY engine/Cargo.toml engine/
+COPY database/Cargo.toml database/
+COPY common/Cargo.toml common/
+COPY query/Cargo.toml query/
+
+# Create dummy main.rs files to build dependencies
+RUN mkdir -p engine/src database/src common/src query/src && \
+    echo "fn main() {}" > engine/src/main.rs && \
+    echo "fn main() {}" > query/src/main.rs && \
+    echo "pub fn lib() {}" > database/src/lib.rs && \
+    echo "pub fn lib() {}" > common/src/lib.rs
+
+# Build dependencies only (this layer will be cached)
+RUN cargo build --bin bitrade --bin spot-query
+
+# Remove dummy files
+RUN rm engine/src/main.rs query/src/main.rs database/src/lib.rs common/src/lib.rs
+
+# Copy the entire project
+COPY . .
+
+# The actual source code will be mounted as a volume in development
+# This allows for hot reloading with cargo-watch
+
+# Expose ports
+EXPOSE 50020 50021
+
+# Default command (will be overridden by docker-compose)
+CMD ["cargo", "watch", "-x", "run", "--bin", "bitrade"]

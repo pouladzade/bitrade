@@ -47,16 +47,13 @@ impl OrderDatabaseReader for Repository {
             .context("Order not found")?;
         Ok(Some(order))
     }
-    fn get_active_orders(&self, market_id: &str) -> Result<Vec<Order>> {
+    fn get_active_orders(&self, _market_id: &str) -> Result<Vec<Order>> {
+        use crate::models::schema::orders::dsl::*;
         let conn = &mut self.get_conn()?;
-        let orders = orders::table
-            .filter(orders::status.eq_any(&[
-                OrderStatus::Open.as_str(),
-                OrderStatus::PartiallyFilled.as_str(),
-            ]))
+        orders
+            .filter(status.eq(OrderStatus::Open.as_str()))
             .load::<Order>(conn)
-            .context("Failed to fetch active orders")?;
-        Ok(orders)
+            .map_err(|e| anyhow::anyhow!("Failed to get active orders: {}", e))
     }
 
     fn list_orders(
@@ -211,7 +208,7 @@ impl OrderDatabaseWriter for Repository {
             diesel::update(wallets::table)
                 .filter(wallets::user_id.eq(&order.user_id))
                 .filter(wallets::asset.eq(&asset))
-                .set((  
+                .set((
                     wallets::available.eq(wallets::available + unlock_amount.clone()),
                     wallets::locked.eq(wallets::locked - unlock_amount),
                 ))
@@ -344,7 +341,7 @@ impl OrderDatabaseWriter for Repository {
     fn update_order_status(&self, order_id: &str, status: OrderStatus) -> Result<Order> {
         let conn = &mut self.get_conn()?;
         let updated_order = diesel::update(orders::table.find(order_id))
-            .set((orders::status.eq(status.as_str())))
+            .set(orders::status.eq(status.as_str()))
             .get_result::<Order>(conn)
             .context("Failed to update order status")?;
 

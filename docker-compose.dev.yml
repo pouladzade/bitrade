@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bitrade-engine-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "50020:50020"
+    environment:
+      - DATABASE_URL=postgres://postgres:mysecretpassword@postgres:5432/postgres
+      - RUST_LOG=debug
+      - SERVER_HOST=[::]
+      - SERVER_PORT=50020
+    volumes:
+      - .:/usr/src/bitrade
+      - cargo_cache:/usr/local/cargo/registry
+      - target_cache:/usr/src/bitrade/target
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["cargo", "watch", "-x", "run", "--bin", "bitrade"]
+    restart: unless-stopped
+
+  bitrade-query-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "50021:50021"
+    environment:
+      - DATABASE_URL=postgres://postgres:mysecretpassword@postgres:5432/postgres
+      - RUST_LOG=debug
+      - SERVER_HOST=[::]
+      - SERVER_PORT=50021
+    volumes:
+      - .:/usr/src/bitrade
+      - cargo_cache:/usr/local/cargo/registry
+      - target_cache:/usr/src/bitrade/target
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["cargo", "watch", "-x", "run", "--bin", "spot-query"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  cargo_cache:
+  target_cache:

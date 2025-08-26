@@ -58,7 +58,7 @@ where
 
     async fn list_markets(
         &self,
-        request: Request<ListMarketsRequest>,
+        _request: Request<ListMarketsRequest>,
     ) -> Result<Response<ListMarketsResponse>, Status> {
         let markets = self
             .repository
@@ -222,6 +222,40 @@ where
         &self,
         request: Request<GetUserTradesRequest>,
     ) -> Result<Response<GetUserTradesResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let pagination = Pagination::from(req.pagination.unwrap_or_default());
+
+        // Create a filter for user trades
+        let filter = TradeFilter::new()
+            .buyer_user_id(Some(req.user_id.clone()))
+            .seller_user_id(Some(req.user_id.clone()))
+            .start_time(if req.start_time > 0 {
+                Some(req.start_time)
+            } else {
+                None
+            })
+            .end_time(if req.end_time > 0 {
+                Some(req.end_time)
+            } else {
+                None
+            });
+
+        let paginated_trades = self
+            .repository
+            .list_trades(filter, Some(pagination))
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(GetUserTradesResponse {
+            trades: paginated_trades
+                .items
+                .into_iter()
+                .map(|t| t.into())
+                .collect(),
+            pagination: Some(PaginationResponse {
+                total_count: paginated_trades.total_count,
+                has_more: paginated_trades.has_more,
+                next_offset: paginated_trades.next_offset.unwrap_or(0),
+            }),
+        }))
     }
 }
