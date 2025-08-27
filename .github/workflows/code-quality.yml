@@ -1,0 +1,72 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Check for unused dependencies
+        run: |
+          cargo install cargo-udeps
+          cargo udeps --all-targets
+
+      - name: Check for dead code
+        run: cargo check --all-targets --all-features
+
+      - name: Verify workspace structure
+        run: |
+          echo "Checking workspace structure..."
+          if [ ! -f "Cargo.toml" ]; then
+            echo "Error: Cargo.toml not found in root"
+            exit 1
+          fi
+
+          if [ ! -d "engine" ] || [ ! -d "database" ] || [ ! -d "query" ]; then
+            echo "Error: Required workspace members not found"
+            exit 1
+          fi
+
+          echo "Workspace structure is valid"
+
+      - name: Check for TODO comments
+        run: |
+          echo "Checking for TODO comments..."
+          if grep -r "TODO" src/ engine/src/ database/src/ query/src/ 2>/dev/null; then
+            echo "Warning: TODO comments found in source code"
+            # Don't fail the build for TODOs, just warn
+          else
+            echo "No TODO comments found"
+          fi
+
+      - name: Check for FIXME comments
+        run: |
+          echo "Checking for FIXME comments..."
+          if grep -r "FIXME" src/ engine/src/ database/src/ query/src/ 2>/dev/null; then
+            echo "Warning: FIXME comments found in source code"
+            # Don't fail the build for FIXMEs, just warn
+          else
+            echo "No FIXME comments found"
+          fi

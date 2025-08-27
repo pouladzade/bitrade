@@ -1,0 +1,90 @@
+name: Database
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "database/migrations/**"
+      - "database/src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "database/migrations/**"
+      - "database/src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+jobs:
+  migrations:
+    name: Database Migrations
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: bitrade_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libpq-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install diesel CLI
+        run: cargo install diesel_cli --no-default-features --features postgres
+
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h localhost -p 5432 -U postgres; do
+            echo "Waiting for PostgreSQL..."
+            sleep 1
+          done
+
+      - name: Run migrations
+        run: |
+          cd database
+          diesel migration run
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bitrade_test
+
+      - name: Verify schema
+        run: |
+          cd database
+          diesel print-schema > schema.rs
+          if [ -f schema.rs ]; then
+            echo "Schema generated successfully"
+          else
+            echo "Failed to generate schema"
+            exit 1
+          fi
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bitrade_test
+
+      - name: Test migrations rollback
+        run: |
+          cd database
+          diesel migration revert
+          diesel migration run
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bitrade_test
